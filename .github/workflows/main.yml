@@ -15,14 +15,14 @@ jobs:
   build:
     name: Build ${{ matrix.os }}
     runs-on: ${{ matrix.runner }}
-    
+
     strategy:
       matrix:
         include:
           - os: linux
             runner: ubuntu-latest
             fyne_os: linux
-            artifact: VibesAndFolders-linux-amd64.tar.gz
+            artifact: VibesAndFolders-linux-amd64.deb
           - os: windows
             runner: windows-latest
             fyne_os: windows
@@ -41,7 +41,7 @@ jobs:
         with:
           go-version: 'stable'
 
-      # Install Fyne CLI tool (use the new location)
+      # Install Fyne CLI tool
       - name: Install Fyne CLI
         run: go install fyne.io/tools/cmd/fyne@latest
 
@@ -58,44 +58,112 @@ jobs:
           # macOS already has the necessary tools
           echo "macOS build environment ready"
 
-      # Build the application natively using fyne tool
-      # Run from root so FyneApp.toml and Icon.png are found
+      # Build the application using fyne package
       - name: Build Application
         run: |
           cd cmd/vibesandfolders
           fyne package -os ${{ matrix.fyne_os }} -icon ../../Icon.png
-          mv VibesAndFolders* ../../ || mv vibesandfolders* ../../ || true
           cd ../..
 
-      - name: Check Linux output
+      # Handle Linux build output and create DEB package
+      - name: Package Linux Build
         if: matrix.os == 'linux'
         run: |
-          if [ -f "VibesAndFolders.tar.xz" ]; then
-            echo "Found packaged Linux build"
-          elif [ -f "vibesandfolders.tar.xz" ]; then
-            mv vibesandfolders.tar.xz VibesAndFolders.tar.xz
+          # Find the generated tar.xz file
+          if [ -f "cmd/vibesandfolders/VibesAndFolders.tar.xz" ]; then
+            TARFILE="cmd/vibesandfolders/VibesAndFolders.tar.xz"
+          elif [ -f "cmd/vibesandfolders/vibesandfolders.tar.xz" ]; then
+            TARFILE="cmd/vibesandfolders/vibesandfolders.tar.xz"
+          else
+            echo "Error: No tar.xz file found"
+            ls -la cmd/vibesandfolders/
+            exit 1
           fi
+          
+          # Extract the tarball
+          mkdir -p build-temp
+          tar -xf "$TARFILE" -C build-temp
+          
+          # Find the binary
+          BINARY=$(find build-temp -type f -executable -name "VibesAndFolders" -o -name "vibesandfolders" | head -1)
+          if [ -z "$BINARY" ]; then
+            echo "Error: Could not find executable in tarball"
+            find build-temp -type f
+            exit 1
+          fi
+          
+          # Create DEB package structure
+          VERSION="1.0.0"
+          DEB_DIR="deb-package"
+          mkdir -p ${DEB_DIR}/DEBIAN
+          mkdir -p ${DEB_DIR}/usr/local/bin
+          mkdir -p ${DEB_DIR}/usr/share/applications
+          mkdir -p ${DEB_DIR}/usr/share/pixmaps
+          
+          # Copy binary
+          cp "$BINARY" ${DEB_DIR}/usr/local/bin/VibesAndFolders
+          chmod +x ${DEB_DIR}/usr/local/bin/VibesAndFolders
+          
+          # Copy icon
+          cp cmd/vibesandfolders/Icon.png ${DEB_DIR}/usr/share/pixmaps/vibesandfolders.png
+          
+          # Create desktop entry
+          cat > ${DEB_DIR}/usr/share/applications/vibesandfolders.desktop << EOF
+          [Desktop Entry]
+          Name=VibesAndFolders
+          Comment=Organize your files with AI
+          Exec=/usr/local/bin/VibesAndFolders
+          Icon=vibesandfolders
+          Terminal=false
+          Type=Application
+          Categories=Utility;FileTools;
+          EOF
+          
+          # Create control file
+          cat > ${DEB_DIR}/DEBIAN/control << EOF
+          Package: vibesandfolders
+          Version: ${VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: sandwichdoge <sandwichdoge@gmail.com>
+          Description: AI-powered file organization tool
+           VibesAndFolders helps you organize your files using AI.
+          EOF
+          
+          # Build the DEB package
+          dpkg-deb --build ${DEB_DIR} VibesAndFolders-linux-amd64.deb
+          
+          # Cleanup
+          rm -rf build-temp ${DEB_DIR}
 
-      - name: Check Windows output  
+      # Handle Windows build output
+      - name: Check Windows output
         if: matrix.os == 'windows'
         shell: pwsh
         run: |
+          cd cmd/vibesandfolders
           if (Test-Path "VibesAndFolders.exe") {
             Write-Host "Found VibesAndFolders.exe"
+            Move-Item VibesAndFolders.exe ../../
           } elseif (Test-Path "vibesandfolders.exe") {
             Rename-Item vibesandfolders.exe VibesAndFolders.exe
+            Move-Item VibesAndFolders.exe ../../
           }
 
+      # Handle macOS build output
       - name: Check macOS output
         if: matrix.os == 'macos'
         run: |
+          cd cmd/vibesandfolders
           if [ -d "VibesAndFolders.app" ]; then
             echo "App bundle created successfully"
+            mv VibesAndFolders.app ../../
           elif [ -d "vibesandfolders.app" ]; then
-            mv vibesandfolders.app VibesAndFolders.app
+            mv vibesandfolders.app ../../VibesAndFolders.app
           fi
 
-      # Upload artifacts for non-release builds (raw binaries - GitHub will zip them)
+      # Upload artifacts for non-release builds
       - name: Upload Artifacts (CI)
         if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
@@ -104,17 +172,9 @@ jobs:
           path: |
             VibesAndFolders.exe
             VibesAndFolders.app
-            VibesAndFolders.tar.xz
+            VibesAndFolders-linux-amd64.deb
 
-      # Package only for releases
-      - name: Package Linux Build for Release
-        if: github.event_name == 'release' && matrix.os == 'linux'
-        run: |
-          # Fyne already creates a .tar.xz, just rename it
-          if [ -f "VibesAndFolders.tar.xz" ]; then
-            mv VibesAndFolders.tar.xz ${{ matrix.artifact }}
-          fi
-
+      # Package for releases
       - name: Package Windows Build for Release
         if: github.event_name == 'release' && matrix.os == 'windows'
         shell: pwsh
@@ -123,6 +183,13 @@ jobs:
       - name: Package macOS Build for Release
         if: github.event_name == 'release' && matrix.os == 'macos'
         run: zip -r ${{ matrix.artifact }} VibesAndFolders.app
+
+      # Linux DEB is already created, just rename if needed
+      - name: Prepare Linux Release Asset
+        if: github.event_name == 'release' && matrix.os == 'linux'
+        run: |
+          # DEB file is already named correctly
+          ls -lh VibesAndFolders-linux-amd64.deb
 
       # Upload to release if this is a release event
       - name: Upload Release Assets
