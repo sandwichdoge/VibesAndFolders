@@ -4,6 +4,8 @@ VibesAndFolders is a desktop tool that uses AI to organize your files based on p
 
 For safety, it can only move or rename a file/folder, never delete. It will never create a new file, only folders.
 
+All decisions are entirely based on filenames, it does not read the file content.
+
 <img width="1030" height="901" alt="image" src="https://github.com/user-attachments/assets/206efee7-5dcf-4184-8778-3ed904a3abdd" />
 
 ### Basic Usage:
