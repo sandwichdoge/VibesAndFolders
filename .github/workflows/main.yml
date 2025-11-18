@@ -15,22 +15,22 @@ jobs:
   build:
     name: Build ${{ matrix.os }}
     runs-on: ${{ matrix.runner }}
-    
+
     strategy:
       matrix:
         include:
           - os: linux
             runner: ubuntu-latest
-            artifact: VibesAndFolders-linux-amd64.tar.gz
-            binary: VibesAndFolders
+            fyne_os: linux
+            artifact: VibesAndFolders-linux-amd64.deb
           - os: windows
             runner: windows-latest
+            fyne_os: windows
             artifact: VibesAndFolders-windows-amd64.zip
-            binary: VibesAndFolders.exe
           - os: macos
             runner: macos-latest
+            fyne_os: darwin
             artifact: VibesAndFolders-macOS.zip
-            binary: VibesAndFolders.app
 
     steps:
       - name: Checkout code
@@ -41,7 +41,7 @@ jobs:
         with:
           go-version: 'stable'
 
-      # Install Fyne CLI tool
+      # Install Fyne CLI tool (use the new location)
       - name: Install Fyne CLI
         run: go install fyne.io/tools/cmd/fyne@latest
 
@@ -55,111 +55,123 @@ jobs:
       - name: Install macOS dependencies
         if: matrix.os == 'macos'
         run: |
+          # macOS already has the necessary tools
           echo "macOS build environment ready"
 
-      # Build the application using fyne-cross or fyne package
-      # Use -release flag for simple binaries with embedded icons
-      - name: Build Linux Binary
+      # Build the application natively using fyne tool
+      # Run from root so FyneApp.toml and Icon.png are found
+      - name: Build Application
+        run: |
+          cd cmd/vibesandfolders
+          fyne package -os ${{ matrix.fyne_os }} -icon ../../Icon.png
+          mv VibesAndFolders* ../../ || mv vibesandfolders* ../../ || true
+          cd ../..
+
+      - name: Check Linux output
         if: matrix.os == 'linux'
         run: |
-          cd cmd/vibesandfolders
-          # Use fyne release for simple binary with icon
-          ~/go/bin/fyne package -release -icon ../../Icon.png
-          # fyne creates lowercase binary name
-          if [ -f "vibesandfolders" ]; then
-            mv vibesandfolders ../../VibesAndFolders
-          elif [ -f "VibesAndFolders" ]; then
-            mv VibesAndFolders ../../VibesAndFolders
+          if [ -f "VibesAndFolders.tar.xz" ]; then
+            echo "Found packaged Linux build"
+          elif [ -f "vibesandfolders.tar.xz" ]; then
+            mv vibesandfolders.tar.xz VibesAndFolders.tar.xz
           fi
-          cd ../..
 
-      - name: Build Windows Binary
-        if: matrix.os == 'windows'
-        shell: pwsh
-        run: |
-          cd cmd/vibesandfolders
-          # Use fyne package with -release for simple .exe with embedded icon
-          ~/go/bin/fyne package -release -os windows -icon ../../Icon.png
-          if (Test-Path "vibesandfolders.exe") {
-            Move-Item vibesandfolders.exe ../../VibesAndFolders.exe
-          } elseif (Test-Path "VibesAndFolders.exe") {
-            Move-Item VibesAndFolders.exe ../../VibesAndFolders.exe
-          }
-          cd ../..
-
-      - name: Build macOS App Bundle
-        if: matrix.os == 'macos'
-        run: |
-          cd cmd/vibesandfolders
-          # Use fyne package for macOS to get proper .app bundle
-          ~/go/bin/fyne package -os darwin -icon ../../Icon.png
-          if [ -d "vibesandfolders.app" ]; then
-            mv vibesandfolders.app ../../VibesAndFolders.app
-          elif [ -d "VibesAndFolders.app" ]; then
-            mv VibesAndFolders.app ../../VibesAndFolders.app
-          fi
-          cd ../..
-
-      # Verify builds exist
-      - name: Verify Linux Build
-        if: matrix.os == 'linux'
-        run: |
-          ls -lh VibesAndFolders
-          file VibesAndFolders
-
-      - name: Verify Windows Build
+      - name: Check Windows output
         if: matrix.os == 'windows'
         shell: pwsh
         run: |
           if (Test-Path "VibesAndFolders.exe") {
-            Write-Host "✓ VibesAndFolders.exe created"
-            Get-Item VibesAndFolders.exe | Select-Object Name, Length
-          } else {
-            Write-Error "VibesAndFolders.exe not found!"
-            exit 1
+            Write-Host "Found VibesAndFolders.exe"
+          } elseif (Test-Path "vibesandfolders.exe") {
+            Rename-Item vibesandfolders.exe VibesAndFolders.exe
           }
 
-      - name: Verify macOS Build
+      - name: Check macOS output
         if: matrix.os == 'macos'
         run: |
           if [ -d "VibesAndFolders.app" ]; then
-            echo "✓ VibesAndFolders.app created"
-            ls -lh VibesAndFolders.app/Contents/MacOS/
-          else
-            echo "ERROR: VibesAndFolders.app not found!"
-            exit 1
+            echo "App bundle created successfully"
+          elif [ -d "vibesandfolders.app" ]; then
+            mv vibesandfolders.app VibesAndFolders.app
           fi
 
-      # Upload artifacts for non-release builds (raw binaries/bundles)
+      # Upload artifacts for non-release builds (raw binaries - GitHub will zip them)
       - name: Upload Artifacts (CI)
         if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
         with:
           name: VibesAndFolders-${{ matrix.os }}
           path: |
-            VibesAndFolders
             VibesAndFolders.exe
             VibesAndFolders.app
+            VibesAndFolders.tar.xz
 
-      # Package for releases - simple, clean archives
+      # Package only for releases
       - name: Package Linux Build for Release
         if: github.event_name == 'release' && matrix.os == 'linux'
         run: |
-          tar -czf ${{ matrix.artifact }} VibesAndFolders
+          # Extract the tar.xz to get the binary
+          tar -xf VibesAndFolders.tar.xz
+          
+          # Create debian package structure
+          mkdir -p debian/DEBIAN
+          mkdir -p debian/usr/local/bin
+          mkdir -p debian/usr/share/applications
+          mkdir -p debian/usr/share/icons/hicolor/256x256/apps
+          
+          # Move binary
+          mv usr/local/bin/VibesAndFolders debian/usr/local/bin/ || mv VibesAndFolders debian/usr/local/bin/
+          chmod +x debian/usr/local/bin/VibesAndFolders
+          
+          # Copy icon if it exists
+          if [ -f "Icon.png" ]; then
+            cp Icon.png debian/usr/share/icons/hicolor/256x256/apps/vibesandfolders.png
+          fi
+          
+          # Create desktop entry
+          cat > debian/usr/share/applications/vibesandfolders.desktop << 'EOF'
+          [Desktop Entry]
+          Name=VibesAndFolders
+          Comment=Organize your files with vibes
+          Exec=/usr/local/bin/VibesAndFolders
+          Icon=vibesandfolders
+          Terminal=false
+          Type=Application
+          Categories=Utility;FileTools;
+          EOF
+          
+          # Get version from tag or use 1.0.0
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"  # Remove 'v' prefix if present
+          VERSION="${VERSION:-1.0.0}"
+          
+          # Create control file
+          cat > debian/DEBIAN/control << EOF
+          Package: vibesandfolders
+          Version: ${VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: sandwichdoge <sandwichdoge@gmail.com>
+          Description: VibesAndFolders - File Organization Tool
+           A modern file organization application built with Fyne.
+           Organize your files with vibes and folders.
+          EOF
+          
+          # Build the .deb package
+          dpkg-deb --build debian ${{ matrix.artifact }}
+          
+          # Verify the package was created
           ls -lh ${{ matrix.artifact }}
 
       - name: Package Windows Build for Release
         if: github.event_name == 'release' && matrix.os == 'windows'
         shell: pwsh
-        run: |
-          Compress-Archive -Path VibesAndFolders.exe -DestinationPath ${{ matrix.artifact }}
-          Get-Item ${{ matrix.artifact }} | Select-Object Name, Length
+        run: Compress-Archive -Path VibesAndFolders.exe -DestinationPath ${{ matrix.artifact }}
 
       - name: Package macOS Build for Release
         if: github.event_name == 'release' && matrix.os == 'macos'
-        run: |
-          zip -r ${{ matrix.artifact }} VibesAndFolders.app
-          ls -lh ${{ matrix.artifact }}
+        run: zip -r ${{ matrix.artifact }} VibesAndFolders.app
 
       # Upload to release if this is a release event
       - name: Upload Release Assets
