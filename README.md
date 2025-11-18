@@ -2,7 +2,10 @@
 
 VibesAndFolders is a desktop tool that uses AI to organize your files based on plain English instructions. Instead of manually sorting hundreds of files, simply describe how you want them arranged, and the application handles the rest.
 
-It features a built-in preview mode and file count verification to ensure no files are lost during the process.
+It will never delete a file or folder, only move.
+
+<img width="1030" height="901" alt="image" src="https://github.com/user-attachments/assets/206efee7-5dcf-4184-8778-3ed904a3abdd" />
+
 
 ### Basic Usage:
 
@@ -18,11 +21,10 @@ Click Analyze to see a preview of the changes.
 
 If the preview looks correct, click Execute to apply the changes.
 
-Download: https://github.com/sandwichdoge/vibesandfolders/releases/
+**Download:** https://github.com/sandwichdoge/vibesandfolders/releases/
 
 ### How to build and run from source:
 ```
 make setup
-make build
 make run
 ```
