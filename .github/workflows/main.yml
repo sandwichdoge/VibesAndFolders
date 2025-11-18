@@ -26,20 +26,29 @@ jobs:
           go-version: 'stable'
 
       - name: Install fyne-cross
-        # We run the make target to install tools, ensuring CI matches your local dev
         run: make install-tools
 
-      - name: Build Linux (via Docker)
+      # --- LINUX ---
+      - name: Build Linux
         run: make build-linux
 
-      - name: Build Windows (via Docker)
+      # --- WINDOWS ---
+      - name: Build Windows
         run: make build-windows
 
-      - name: Build macOS (via Docker)
-        run: make build-mac
+      # --- MACOS (Fixed with SDK) ---
+      - name: Download macOS SDK
+        run: |
+          # Download a packaged SDK (MacOSX 12.3 is a safe standard)
+          wget -q https://github.com/joseluisq/macosx-sdks/releases/download/12.3/MacOSX12.3.sdk.tar.xz
+          tar -xf MacOSX12.3.sdk.tar.xz
 
-      # --- Artifact Packaging (Prepares files for Upload) ---
+      - name: Build macOS
+        # We run the command manually here to inject the -sdk flag
+        # (bypassing 'make build-mac' to avoid editing your Makefile)
+        run: fyne-cross darwin -sdk $(pwd)/MacOSX12.3.sdk ./cmd/vibesandfolders
 
+      # --- PACKAGING ---
       - name: Package Linux Build
         run: |
           cd fyne-cross/bin/linux-amd64
@@ -52,11 +61,16 @@ jobs:
 
       - name: Package macOS Build
         run: |
-          cd fyne-cross/bin/darwin-universal
-          zip -r ../../../VibesAndFolders-macOS-universal.zip *
+          # Fyne-cross darwin output is usually a .app folder or a binary inside darwin-universal or darwin-amd64
+          # We check specifically for the universal folder or amd64
+          if [ -d "fyne-cross/bin/darwin-universal" ]; then
+             cd fyne-cross/bin/darwin-universal
+          elif [ -d "fyne-cross/bin/darwin-amd64" ]; then
+             cd fyne-cross/bin/darwin-amd64
+          fi
+          zip -r ../../../VibesAndFolders-macOS.zip *
 
-      # --- Upload Artifacts (For Pull Requests/Commits) ---
-
+      # --- UPLOAD ARTIFACTS ---
       - name: Upload Artifacts (CI)
         if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
@@ -66,8 +80,7 @@ jobs:
             VibesAndFolders-*.zip
             VibesAndFolders-*.tar.gz
 
-      # --- Release Asset Upload (Only on Tags) ---
-
+      # --- RELEASE ---
       - name: Upload Release Assets
         if: github.event_name == 'release'
         env:
@@ -76,5 +89,5 @@ jobs:
           gh release upload ${{ github.event.release.tag_name }} \
             VibesAndFolders-linux-amd64.tar.gz \
             VibesAndFolders-windows-amd64.zip \
-            VibesAndFolders-macOS-universal.zip \
+            VibesAndFolders-macOS.zip \
             --clobber
