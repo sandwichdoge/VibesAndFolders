@@ -110,11 +110,15 @@ func main() {
 	)
 	depthSelect.SetSelected("Unlimited")
 
+	// Checkbox for cleaning empty directories
+	cleanCheck := widget.NewCheck("Clean-up empty directories after execution", func(bool) {})
+	cleanCheck.SetChecked(true) // Default to true as it's usually desired
+
 	// Output area
 	outputText := widget.NewMultiLineEntry()
 	outputText.SetPlaceHolder("Directory structure and AI suggestions will appear here...")
 	outputText.Wrapping = fyne.TextWrapWord
-	outputText.SetMinRowsVisible(15) // Still good for setting an initial size
+	outputText.SetMinRowsVisible(15)
 
 	// Make the output text read-only by reverting any user changes
 	var lastOutputContent string
@@ -124,18 +128,33 @@ func main() {
 		}
 	}
 
+	// Helper function to update output text (preserves the read-only state AND scrolls)
+	setOutputText := func(text string) {
+		lastOutputContent = text
+		outputText.SetText(text)
+
+		// --- AUTO-SCROLL LOGIC ---
+		// Calculate the number of lines to set the cursor to the very end
+		lineCount := strings.Count(text, "\n")
+		// Move cursor to the last line
+		outputText.CursorRow = lineCount + 1
+		// Refresh creates the visual update to jump the scrollbar
+		outputText.Refresh()
+	}
+
 	// Status and progress
 	statusLabel := widget.NewLabel("Ready")
 	progressBar := widget.NewProgressBarInfinite()
 	progressBar.Hide()
 
-	// Execute button (initially hidden)
+	// Execute button
 	var executeBtn *widget.Button
 	var currentOperations []adminapp.FileOperation
 
 	executeBtn = widget.NewButton("✓ Execute These Operations", func() {
 		executeBtn.Hide()
-		go adminapp.ExecuteOperations(currentOperations, dirEntry.Text, statusLabel, outputText, myWindow)
+		// Pass setOutputText instead of outputText
+		go adminapp.ExecuteOperations(currentOperations, dirEntry.Text, cleanCheck.Checked, statusLabel, setOutputText, myWindow)
 	})
 	executeBtn.Hide()
 
@@ -148,12 +167,6 @@ func main() {
 			dirEntry.SetText(uri.Path())
 		}, myWindow)
 	})
-
-	// Helper function to update output text (preserves the read-only state)
-	setOutputText := func(text string) {
-		lastOutputContent = text
-		outputText.SetText(text)
-	}
 
 	// Analyze button
 	var analyzeBtn *widget.Button
@@ -259,19 +272,25 @@ func main() {
 
 	// Top: Inputs
 	dirInputRow := container.NewBorder(nil, nil, nil, browseBtn, dirEntry)
+
+	// Group scan options together
+	scanOptions := container.NewHBox(
+		widget.NewLabel("Scan Depth:"),
+		depthSelect,
+		widget.NewLabel("   "), // spacer
+		cleanCheck,
+	)
+
 	topInputs := container.NewVBox(
 		widget.NewLabel("Directory Path:"),
 		dirInputRow,
 		widget.NewLabel("What to do with this directory:"),
 		promptEntry,
-		container.NewBorder(nil, nil, widget.NewLabel("Scan Depth:"), nil, depthSelect),
+		scanOptions,
 		analyzeBtn,
 		widget.NewSeparator(),
 		widget.NewLabel("Output:"), // Label for the output box
 	)
-
-	// Center: Output (wrapped in a scroll container)
-	scrollableOutput := container.NewScroll(outputText)
 
 	// Bottom: Status and Actions
 	bottomStatus := container.NewVBox(
@@ -282,11 +301,11 @@ func main() {
 
 	// Main Layout: Use Border layout for flexible resizing
 	content := container.NewBorder(
-		topInputs,        // Top
-		bottomStatus,     // Bottom
-		nil,              // Left
-		nil,              // Right
-		scrollableOutput, // Center (will expand to fill remaining space)
+		topInputs,    // Top
+		bottomStatus, // Bottom
+		nil,          // Left
+		nil,          // Right
+		outputText,   // Center (Directly use the entry, do not wrap in Scroll)
 	)
 
 	paddedContent := container.NewPadded(content)
