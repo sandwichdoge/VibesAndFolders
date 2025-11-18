@@ -67,14 +67,66 @@ jobs:
           mv VibesAndFolders* ../../ || mv vibesandfolders* ../../ || true
           cd ../..
 
-      - name: Check Linux output
+      - name: Check and Package Linux Build
         if: matrix.os == 'linux'
         run: |
+          # Extract the tar.xz if it exists
           if [ -f "VibesAndFolders.tar.xz" ]; then
-            echo "Found packaged Linux build"
+            tar -xf VibesAndFolders.tar.xz
           elif [ -f "vibesandfolders.tar.xz" ]; then
-            mv vibesandfolders.tar.xz VibesAndFolders.tar.xz
+            tar -xf vibesandfolders.tar.xz
           fi
+          
+          # Find the binary
+          BINARY=$(find . -maxdepth 2 -name "VibesAndFolders" -o -name "vibesandfolders" | head -n 1)
+          if [ -z "$BINARY" ]; then
+            echo "Error: Binary not found"
+            exit 1
+          fi
+          
+          echo "Found binary: $BINARY"
+          chmod +x "$BINARY"
+          
+          # Create .deb package structure
+          mkdir -p debian-package/DEBIAN
+          mkdir -p debian-package/usr/local/bin
+          mkdir -p debian-package/usr/share/applications
+          mkdir -p debian-package/usr/share/icons/hicolor/256x256/apps
+          
+          # Copy binary
+          cp "$BINARY" debian-package/usr/local/bin/vibesandfolders
+          
+          # Copy icon if it exists
+          if [ -f "Icon.png" ]; then
+            cp Icon.png debian-package/usr/share/icons/hicolor/256x256/apps/vibesandfolders.png
+          fi
+          
+          # Create control file
+          cat > debian-package/DEBIAN/control << EOF
+          Package: vibesandfolders
+          Version: 1.0.0
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: VibesAndFolders Team
+          Description: VibesAndFolders Application
+           A Fyne-based desktop application for managing vibes and folders.
+          EOF
+          
+          # Create desktop entry
+          cat > debian-package/usr/share/applications/vibesandfolders.desktop << EOF
+          [Desktop Entry]
+          Name=VibesAndFolders
+          Comment=Manage your vibes and folders
+          Exec=/usr/local/bin/vibesandfolders
+          Icon=vibesandfolders
+          Terminal=false
+          Type=Application
+          Categories=Utility;
+          EOF
+          
+          # Build the .deb package
+          dpkg-deb --build debian-package VibesAndFolders-linux-amd64.deb
 
       - name: Check Windows output
         if: matrix.os == 'windows'
@@ -102,67 +154,19 @@ jobs:
         with:
           name: VibesAndFolders-${{ matrix.os }}
           path: |
+            VibesAndFolders*.deb
             VibesAndFolders.exe
             VibesAndFolders.app
-            VibesAndFolders.tar.xz
 
       # Package only for releases
-      - name: Package Linux Build for Release
+      - name: Verify Linux Package for Release
         if: github.event_name == 'release' && matrix.os == 'linux'
         run: |
-          # Extract the tar.xz to get the binary
-          tar -xf VibesAndFolders.tar.xz
-          
-          # Create debian package structure
-          mkdir -p debian/DEBIAN
-          mkdir -p debian/usr/local/bin
-          mkdir -p debian/usr/share/applications
-          mkdir -p debian/usr/share/icons/hicolor/256x256/apps
-          
-          # Move binary
-          mv usr/local/bin/VibesAndFolders debian/usr/local/bin/ || mv VibesAndFolders debian/usr/local/bin/
-          chmod +x debian/usr/local/bin/VibesAndFolders
-          
-          # Copy icon if it exists
-          if [ -f "Icon.png" ]; then
-            cp Icon.png debian/usr/share/icons/hicolor/256x256/apps/vibesandfolders.png
+          if [ ! -f "VibesAndFolders-linux-amd64.deb" ]; then
+            echo "Error: .deb package not found"
+            exit 1
           fi
-          
-          # Create desktop entry
-          cat > debian/usr/share/applications/vibesandfolders.desktop << 'EOF'
-          [Desktop Entry]
-          Name=VibesAndFolders
-          Comment=Organize your files with vibes
-          Exec=/usr/local/bin/VibesAndFolders
-          Icon=vibesandfolders
-          Terminal=false
-          Type=Application
-          Categories=Utility;FileTools;
-          EOF
-          
-          # Get version from tag or use 1.0.0
-          VERSION="${{ github.event.release.tag_name }}"
-          VERSION="${VERSION#v}"  # Remove 'v' prefix if present
-          VERSION="${VERSION:-1.0.0}"
-          
-          # Create control file
-          cat > debian/DEBIAN/control << EOF
-          Package: vibesandfolders
-          Version: ${VERSION}
-          Section: utils
-          Priority: optional
-          Architecture: amd64
-          Maintainer: sandwichdoge <sandwichdoge@gmail.com>
-          Description: VibesAndFolders - File Organization Tool
-           A modern file organization application built with Fyne.
-           Organize your files with vibes and folders.
-          EOF
-          
-          # Build the .deb package
-          dpkg-deb --build debian ${{ matrix.artifact }}
-          
-          # Verify the package was created
-          ls -lh ${{ matrix.artifact }}
+          echo "Linux .deb package ready for release"
 
       - name: Package Windows Build for Release
         if: github.event_name == 'release' && matrix.os == 'windows'
