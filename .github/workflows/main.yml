@@ -62,7 +62,7 @@ jobs:
       - name: Build Application
         run: |
           cd cmd/vibesandfolders
-          fyne package -os ${{ matrix.fyne_os }} -icon ../../Icon.png
+          fyne package -os ${{ matrix.fyne_os }} -icon Icon.png
           cd ../..
 
       # Handle Linux build output and create DEB package
@@ -126,7 +126,7 @@ jobs:
           Section: utils
           Priority: optional
           Architecture: amd64
-          Maintainer: sandwichdoge <sandwichdoge@gmail.com>
+          Maintainer: VibesAndFolders <noreply@example.com>
           Description: AI-powered file organization tool
            VibesAndFolders helps you organize your files using AI.
           EOF
