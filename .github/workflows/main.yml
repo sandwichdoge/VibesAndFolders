@@ -1,0 +1,80 @@
+name: Build VibesAndFolders
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  release:
+    types: [created]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Fyne Cross-Platform
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install fyne-cross
+        # We run the make target to install tools, ensuring CI matches your local dev
+        run: make install-tools
+
+      - name: Build Linux (via Docker)
+        run: make build-linux
+
+      - name: Build Windows (via Docker)
+        run: make build-windows
+
+      - name: Build macOS (via Docker)
+        run: make build-mac
+
+      # --- Artifact Packaging (Prepares files for Upload) ---
+
+      - name: Package Linux Build
+        run: |
+          cd fyne-cross/bin/linux-amd64
+          tar czvf ../../../VibesAndFolders-linux-amd64.tar.gz *
+
+      - name: Package Windows Build
+        run: |
+          cd fyne-cross/bin/windows-amd64
+          zip -r ../../../VibesAndFolders-windows-amd64.zip *
+
+      - name: Package macOS Build
+        run: |
+          cd fyne-cross/bin/darwin-universal
+          zip -r ../../../VibesAndFolders-macOS-universal.zip *
+
+      # --- Upload Artifacts (For Pull Requests/Commits) ---
+
+      - name: Upload Artifacts (CI)
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: VibesAndFolders-Builds
+          path: |
+            VibesAndFolders-*.zip
+            VibesAndFolders-*.tar.gz
+
+      # --- Release Asset Upload (Only on Tags) ---
+
+      - name: Upload Release Assets
+        if: github.event_name == 'release'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.event.release.tag_name }} \
+            VibesAndFolders-linux-amd64.tar.gz \
+            VibesAndFolders-windows-amd64.zip \
+            VibesAndFolders-macOS-universal.zip \
+            --clobber
