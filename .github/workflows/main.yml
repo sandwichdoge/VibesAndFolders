@@ -41,6 +41,10 @@ jobs:
         with:
           go-version: 'stable'
 
+      # Install Fyne CLI tool
+      - name: Install Fyne CLI
+        run: go install fyne.io/tools/cmd/fyne@latest
+
       # Install platform-specific dependencies
       - name: Install Linux dependencies
         if: matrix.os == 'linux'
@@ -53,12 +57,20 @@ jobs:
         run: |
           echo "macOS build environment ready"
 
-      # Build the application - simple go build with proper flags
+      # Build the application using fyne-cross or fyne package
+      # Use -release flag for simple binaries with embedded icons
       - name: Build Linux Binary
         if: matrix.os == 'linux'
         run: |
           cd cmd/vibesandfolders
-          go build -ldflags="-s -w" -o ../../VibesAndFolders
+          # Use fyne release for simple binary with icon
+          ~/go/bin/fyne package -release -icon ../../Icon.png
+          # fyne creates lowercase binary name
+          if [ -f "vibesandfolders" ]; then
+            mv vibesandfolders ../../VibesAndFolders
+          elif [ -f "VibesAndFolders" ]; then
+            mv VibesAndFolders ../../VibesAndFolders
+          fi
           cd ../..
 
       - name: Build Windows Binary
@@ -66,14 +78,18 @@ jobs:
         shell: pwsh
         run: |
           cd cmd/vibesandfolders
-          go build -ldflags="-s -w -H windowsgui" -o ../../VibesAndFolders.exe
+          # Use fyne package with -release for simple .exe with embedded icon
+          ~/go/bin/fyne package -release -os windows -icon ../../Icon.png
+          if (Test-Path "vibesandfolders.exe") {
+            Move-Item vibesandfolders.exe ../../VibesAndFolders.exe
+          } elseif (Test-Path "VibesAndFolders.exe") {
+            Move-Item VibesAndFolders.exe ../../VibesAndFolders.exe
+          }
           cd ../..
 
       - name: Build macOS App Bundle
         if: matrix.os == 'macos'
         run: |
-          # Install fyne CLI for packaging
-          go install fyne.io/tools/cmd/fyne@latest
           cd cmd/vibesandfolders
           # Use fyne package for macOS to get proper .app bundle
           ~/go/bin/fyne package -os darwin -icon ../../Icon.png
