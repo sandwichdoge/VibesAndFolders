@@ -59,10 +59,34 @@ jobs:
           echo "macOS build environment ready"
 
       # Build the application using fyne package
-      - name: Build Application
+      - name: Build Linux/Windows Application
+        if: matrix.os != 'macos'
         run: |
           cd cmd/vibesandfolders
           fyne package -os ${{ matrix.fyne_os }} -icon Icon.png
+          cd ../..
+
+      # Build universal macOS binary (both amd64 and arm64)
+      - name: Build macOS Universal Binary
+        if: matrix.os == 'macos'
+        run: |
+          cd cmd/vibesandfolders
+          
+          # Build for amd64
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -o VibesAndFolders-amd64 .
+          
+          # Build for arm64
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -o VibesAndFolders-arm64 .
+          
+          # Combine into universal binary
+          lipo -create -output VibesAndFolders VibesAndFolders-amd64 VibesAndFolders-arm64
+          
+          # Clean up individual arch binaries
+          rm VibesAndFolders-amd64 VibesAndFolders-arm64
+          
+          # Create app bundle using fyne package
+          fyne package -os darwin -icon Icon.png -executable VibesAndFolders
+          
           cd ../..
 
       # Handle Linux build output and create DEB package
@@ -126,7 +150,7 @@ jobs:
           Section: utils
           Priority: optional
           Architecture: amd64
-          Maintainer: VibesAndFolders <noreply@example.com>
+          Maintainer: sandwichdoge <sandwichdoge@gmail.com>
           Description: AI-powered file organization tool
            VibesAndFolders helps you organize your files using AI.
           EOF
