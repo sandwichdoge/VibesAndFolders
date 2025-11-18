@@ -21,12 +21,15 @@ jobs:
         include:
           - os: linux
             runner: ubuntu-latest
+            fyne_os: linux
             artifact: VibesAndFolders-linux-amd64.tar.gz
           - os: windows
             runner: windows-latest
+            fyne_os: windows
             artifact: VibesAndFolders-windows-amd64.zip
           - os: macos
             runner: macos-latest
+            fyne_os: darwin
             artifact: VibesAndFolders-macOS.zip
 
     steps:
@@ -60,7 +63,7 @@ jobs:
       - name: Build Application
         run: |
           cd cmd/vibesandfolders
-          fyne package -os ${{ matrix.os }} -icon ../../Icon.png
+          fyne package -os ${{ matrix.fyne_os }} -icon ../../Icon.png
           mv VibesAndFolders* ../../ || mv vibesandfolders* ../../ || true
           cd ../..
 
