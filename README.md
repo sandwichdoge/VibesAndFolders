@@ -6,7 +6,6 @@ It will never delete a file or folder, only move.
 
 <img width="1030" height="901" alt="image" src="https://github.com/user-attachments/assets/206efee7-5dcf-4184-8778-3ed904a3abdd" />
 
-
 ### Basic Usage:
 
 Launch the application.
@@ -21,7 +20,7 @@ Click Analyze to see a preview of the changes.
 
 If the preview looks correct, click Execute to apply the changes.
 
-**Download:** https://github.com/sandwichdoge/vibesandfolders/releases/
+**Downloads (Mac, Windows, Linux):** https://github.com/sandwichdoge/vibesandfolders/releases/
 
 ### How to build and run from source:
 ```
