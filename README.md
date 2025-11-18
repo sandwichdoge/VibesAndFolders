@@ -2,7 +2,7 @@
 
 VibesAndFolders is a desktop tool that uses AI to organize your files based on plain English instructions. Instead of manually sorting hundreds of files, simply describe how you want them arranged, and the application handles the rest.
 
-It will never delete a file or folder, only move.
+For safety, it will never delete a file or folder, only move. It will never create a new file, only folders.
 
 <img width="1030" height="901" alt="image" src="https://github.com/user-attachments/assets/206efee7-5dcf-4184-8778-3ed904a3abdd" />
 
