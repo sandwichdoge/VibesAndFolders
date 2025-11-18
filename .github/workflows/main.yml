@@ -55,27 +55,27 @@ jobs:
       - name: Build Application
         run: go build -o VibesAndFolders${{ matrix.os == 'windows' && '.exe' || '' }} ./cmd/vibesandfolders
 
-      # Package the builds
-      - name: Package Linux Build
-        if: matrix.os == 'linux'
-        run: tar czvf ${{ matrix.artifact }} VibesAndFolders
-
-      - name: Package Windows Build
-        if: matrix.os == 'windows'
-        shell: pwsh
-        run: Compress-Archive -Path VibesAndFolders.exe -DestinationPath ${{ matrix.artifact }}
-
-      - name: Package macOS Build
-        if: matrix.os == 'macos'
-        run: zip ${{ matrix.artifact }} VibesAndFolders
-
-      # Upload artifacts for non-release builds
+      # Upload artifacts for non-release builds (raw binaries - GitHub will zip them)
       - name: Upload Artifacts (CI)
         if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
         with:
           name: VibesAndFolders-${{ matrix.os }}
-          path: ${{ matrix.artifact }}
+          path: VibesAndFolders${{ matrix.os == 'windows' && '.exe' || '' }}
+
+      # Package only for releases
+      - name: Package Linux Build for Release
+        if: github.event_name == 'release' && matrix.os == 'linux'
+        run: tar czvf ${{ matrix.artifact }} VibesAndFolders
+
+      - name: Package Windows Build for Release
+        if: github.event_name == 'release' && matrix.os == 'windows'
+        shell: pwsh
+        run: Compress-Archive -Path VibesAndFolders.exe -DestinationPath ${{ matrix.artifact }}
+
+      - name: Package macOS Build for Release
+        if: github.event_name == 'release' && matrix.os == 'macos'
+        run: zip ${{ matrix.artifact }} VibesAndFolders
 
       # Upload to release if this is a release event
       - name: Upload Release Assets
