@@ -67,10 +67,6 @@ jobs:
           mv VibesAndFolders* ../../ || mv vibesandfolders* ../../ || true
           cd ../..
 
-      # The fyne package command creates different outputs per platform
-      - name: List files (debug)
-        run: ls -la
-
       - name: Check Linux output
         if: matrix.os == 'linux'
         run: |
