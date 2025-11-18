@@ -36,7 +36,6 @@ type AIResponseWrapper struct {
 	Operations []FileOperation `json:"operations"`
 }
 
-// Exported function
 func GetAISuggestions(structure, userPrompt, basePath string) ([]FileOperation, error) {
 
 	systemPrompt := `You are a file organization assistant. You MUST output a valid JSON object.
@@ -61,6 +60,13 @@ Example output format:
 
 	fullPrompt := fmt.Sprintf("Base directory: %s\n\nDirectory structure (relative paths):\n%s\n\nUser instructions: %s\n\nProvide JSON object (using relative paths):", basePath, structure, userPrompt)
 
+	// --- ADDED LOGGING ---
+	fmt.Printf("=== AI Prompt Log ===\n")
+	fmt.Printf("--- System Prompt ---\n%s\n", systemPrompt)
+	fmt.Printf("--- User Prompt ---\n%s\n", fullPrompt)
+	fmt.Printf("=====================\n")
+	// --- END LOGGING ---
+
 	reqBody := OpenAIRequest{
 		Model: GlobalConfig.Model,
 		Messages: []Message{
@@ -75,14 +81,12 @@ Example output format:
 		return nil, err
 	}
 
-	// Use exported GlobalConfig
 	req, err := http.NewRequest("POST", GlobalConfig.Endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	// Use exported GlobalConfig
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", GlobalConfig.APIKey))
 
 	// OpenRouter-specific headers (optional but recommended)
@@ -143,11 +147,11 @@ Example output format:
 
 	var responseWrapper AIResponseWrapper
 	if err := json.Unmarshal([]byte(content), &responseWrapper); err != nil {
-		// This is the error point we were seeing before.
+		// This is a common error point if the AI's response isn't valid JSON.
 		return nil, fmt.Errorf("failed to parse AI response as JSON object: %v\nResponse: %s", err, truncate(content, 300))
 	}
 
-	// --- Now, extract the operations list from the wrapper ---
+	// Extract the operations list from the wrapper
 	operations := responseWrapper.Operations
 
 	// Validate and CONVERT paths from relative to absolute

@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"strconv" // <-- ADDED IMPORT
+	"strconv"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -21,7 +21,6 @@ func showConfigWindow(a fyne.App, onFirstRunSubmit func(), onFirstRunCancel func
 	configWin.Resize(fyne.NewSize(600, 200))
 
 	endpointEntry := widget.NewEntry()
-	// Use the aliased package
 	endpointEntry.SetText(adminapp.GlobalConfig.Endpoint)
 	endpointEntry.SetPlaceHolder("https://api.example.com/v1/chat/completions")
 
@@ -45,11 +44,10 @@ func showConfigWindow(a fyne.App, onFirstRunSubmit func(), onFirstRunCancel func
 				return // Stop submission
 			}
 
-			// Save the new values to the exported config
+			// Save the new values to the global config
 			adminapp.GlobalConfig.Endpoint = endpointEntry.Text
 			adminapp.GlobalConfig.APIKey = apiKeyEntry.Text
 			adminapp.GlobalConfig.Model = modelEntry.Text
-			// Use the aliased package
 			adminapp.SaveConfig(a)
 
 			dialog.ShowInformation("Saved", "Configuration has been saved.", configWin)
@@ -106,15 +104,13 @@ func main() {
 	promptEntry.SetPlaceHolder("Enter your organization instructions (e.g., 'Organize by file type into folders')")
 	promptEntry.SetMinRowsVisible(3)
 
-	// --- NEW WIDGET ---
 	depthSelect := widget.NewSelect(
 		[]string{"Unlimited", "1 (Root Only)", "2", "3", "4", "5"},
 		func(s string) {}, // No action needed on select
 	)
 	depthSelect.SetSelected("Unlimited")
-	// --- END NEW WIDGET ---
 
-	// Output area - make it taller
+	// Output area
 	outputText := widget.NewMultiLineEntry()
 	outputText.SetPlaceHolder("Directory structure and AI suggestions will appear here...")
 	outputText.Wrapping = fyne.TextWrapWord
@@ -135,12 +131,10 @@ func main() {
 
 	// Execute button (initially hidden)
 	var executeBtn *widget.Button
-	// Use the aliased package
 	var currentOperations []adminapp.FileOperation
 
 	executeBtn = widget.NewButton("✓ Execute These Operations", func() {
 		executeBtn.Hide()
-		// Use the aliased package
 		go adminapp.ExecuteOperations(currentOperations, dirEntry.Text, statusLabel, outputText, myWindow)
 	})
 	executeBtn.Hide()
@@ -182,7 +176,7 @@ func main() {
 			return
 		}
 
-		// --- PARSE DEPTH ---
+		// Parse depth
 		selectedDepthStr := depthSelect.Selected
 		var maxDepth int
 		if selectedDepthStr == "Unlimited" {
@@ -199,9 +193,8 @@ func main() {
 			}
 			maxDepth = parsedDepth
 		}
-		// --- END PARSE DEPTH ---
 
-		// Show progress and disable controls (Main Thread)
+		// Show progress and disable controls (UI Thread)
 		progressBar.Show()
 		analyzeBtn.Disable()
 		executeBtn.Hide()
@@ -210,9 +203,7 @@ func main() {
 
 		go func() {
 			// Get directory structure (Background Thread)
-			// --- UPDATED FUNCTION CALL ---
 			structure, err := adminapp.GetDirectoryStructure(dirPath, maxDepth)
-			// --- END UPDATED CALL ---
 			if err != nil {
 				fyne.Do(func() {
 					progressBar.Hide()
@@ -223,7 +214,7 @@ func main() {
 				return // Exit goroutine
 			}
 
-			// Update UI before long AI call (Main Thread)
+			// Update UI before long AI call (UI Thread)
 			fyne.Do(func() {
 				statusLabel.SetText("Requesting analysis from AI, be patient...")
 				setOutputText(fmt.Sprintf("Directory Structure:\n%s\n\nWaiting for AI response...", structure))
@@ -262,7 +253,7 @@ func main() {
 				currentOperations = operations
 				executeBtn.Show()
 			})
-			// --- End Main Thread UI update ---
+			// --- End UI Thread update ---
 		}() // --- End goroutine ---
 	})
 
@@ -273,9 +264,7 @@ func main() {
 		dirInputRow,
 		widget.NewLabel("What to do with this directory:"),
 		promptEntry,
-		// --- ADDED DEPTH ROW ---
 		container.NewBorder(nil, nil, widget.NewLabel("Scan Depth:"), nil, depthSelect),
-		// --- END ADDED ROW ---
 		analyzeBtn,
 		widget.NewSeparator(),
 		widget.NewLabel("Output:"), // Label for the output box

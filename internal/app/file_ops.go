@@ -33,7 +33,6 @@ func GetDirectoryStructure(rootPath string, maxDepth int) (string, error) {
 		// Use forward slashes for consistency
 		relPath = filepath.ToSlash(relPath)
 
-		// --- DEPTH CHECK ---
 		// Calculate current depth
 		currentDepth := len(strings.Split(relPath, "/"))
 
@@ -46,7 +45,6 @@ func GetDirectoryStructure(rootPath string, maxDepth int) (string, error) {
 			// If it's a file, just skip this entry
 			return nil
 		}
-		// --- END DEPTH CHECK ---
 
 		if info.IsDir() {
 			// Don't show size for directories
@@ -106,8 +104,7 @@ func ExecuteOperations(operations []FileOperation, basePath string, statusLabel 
 	finalStatus := fmt.Sprintf("Completed: %d successful, %d failed", successCount, failCount)
 
 	// Get new structure (this is fast enough to run in the background thread)
-	// --- UPDATED CALL: Use 0 for unlimited depth ---
-	structure, _ := GetDirectoryStructure(basePath, 0)
+	structure, _ := GetDirectoryStructure(basePath, 0) // Use 0 for unlimited depth
 
 	fyne.Do(func() {
 		statusLabel.SetText(finalStatus)

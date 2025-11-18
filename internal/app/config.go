@@ -24,10 +24,8 @@ type Config struct {
 	Model    string `json:"model"`
 }
 
-// Exported global variable
 var GlobalConfig *Config
 
-// Exported function
 func LoadConfig(a fyne.App) {
 	GlobalConfig = &Config{}
 
@@ -79,7 +77,6 @@ func LoadConfig(a fyne.App) {
 	log.Println("Configuration loaded successfully.")
 }
 
-// Exported function
 func SaveConfig(a fyne.App) {
 	data, err := json.MarshalIndent(GlobalConfig, "", "  ")
 	if err != nil {
@@ -112,7 +109,6 @@ func SaveConfig(a fyne.App) {
 
 func loadDefaults() {
 	GlobalConfig.Endpoint = defaultEndpoint
-	// Use the exported constant
 	GlobalConfig.APIKey = DefaultAPIKey
 	GlobalConfig.Model = defaultModel
 }
