@@ -13,8 +13,21 @@ permissions:
 
 jobs:
   build:
-    name: Build Fyne Cross-Platform
-    runs-on: ubuntu-latest
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
+    
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            runner: ubuntu-latest
+            artifact: VibesAndFolders-linux-amd64.tar.gz
+          - os: windows
+            runner: windows-latest
+            artifact: VibesAndFolders-windows-amd64.zip
+          - os: macos
+            runner: macos-latest
+            artifact: VibesAndFolders-macOS.zip
 
     steps:
       - name: Checkout code
@@ -25,69 +38,48 @@ jobs:
         with:
           go-version: 'stable'
 
-      - name: Install fyne-cross
-        run: make install-tools
-
-      # --- LINUX ---
-      - name: Build Linux
-        run: make build-linux
-
-      # --- WINDOWS ---
-      - name: Build Windows
-        run: make build-windows
-
-      # --- MACOS (Fixed with SDK) ---
-      - name: Download macOS SDK
+      # Install platform-specific dependencies
+      - name: Install Linux dependencies
+        if: matrix.os == 'linux'
         run: |
-          # Download a packaged SDK (MacOSX 12.3 is a safe standard)
-          wget -q https://github.com/joseluisq/macosx-sdks/releases/download/12.3/MacOSX12.3.sdk.tar.xz
-          tar -xf MacOSX12.3.sdk.tar.xz
+          sudo apt-get update
+          sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev
 
-      - name: Build macOS
-        # We run the command manually here to inject the -sdk flag
-        # (bypassing 'make build-mac' to avoid editing your Makefile)
-        run: fyne-cross darwin -sdk $(pwd)/MacOSX12.3.sdk ./cmd/vibesandfolders
+      - name: Install macOS dependencies
+        if: matrix.os == 'macos'
+        run: |
+          # macOS already has the necessary tools
+          echo "macOS build environment ready"
 
-      # --- PACKAGING ---
+      # Build the application natively
+      - name: Build Application
+        run: go build -o VibesAndFolders${{ matrix.os == 'windows' && '.exe' || '' }} ./cmd/vibesandfolders
+
+      # Package the builds
       - name: Package Linux Build
-        run: |
-          cd fyne-cross/bin/linux-amd64
-          tar czvf ../../../VibesAndFolders-linux-amd64.tar.gz *
+        if: matrix.os == 'linux'
+        run: tar czvf ${{ matrix.artifact }} VibesAndFolders
 
       - name: Package Windows Build
-        run: |
-          cd fyne-cross/bin/windows-amd64
-          zip -r ../../../VibesAndFolders-windows-amd64.zip *
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: Compress-Archive -Path VibesAndFolders.exe -DestinationPath ${{ matrix.artifact }}
 
       - name: Package macOS Build
-        run: |
-          # Fyne-cross darwin output is usually a .app folder or a binary inside darwin-universal or darwin-amd64
-          # We check specifically for the universal folder or amd64
-          if [ -d "fyne-cross/bin/darwin-universal" ]; then
-             cd fyne-cross/bin/darwin-universal
-          elif [ -d "fyne-cross/bin/darwin-amd64" ]; then
-             cd fyne-cross/bin/darwin-amd64
-          fi
-          zip -r ../../../VibesAndFolders-macOS.zip *
+        if: matrix.os == 'macos'
+        run: zip ${{ matrix.artifact }} VibesAndFolders
 
-      # --- UPLOAD ARTIFACTS ---
+      # Upload artifacts for non-release builds
       - name: Upload Artifacts (CI)
         if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
         with:
-          name: VibesAndFolders-Builds
-          path: |
-            VibesAndFolders-*.zip
-            VibesAndFolders-*.tar.gz
+          name: VibesAndFolders-${{ matrix.os }}
+          path: ${{ matrix.artifact }}
 
-      # --- RELEASE ---
+      # Upload to release if this is a release event
       - name: Upload Release Assets
         if: github.event_name == 'release'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload ${{ github.event.release.tag_name }} \
-            VibesAndFolders-linux-amd64.tar.gz \
-            VibesAndFolders-windows-amd64.zip \
-            VibesAndFolders-macOS.zip \
-            --clobber
+        run: gh release upload ${{ github.event.release.tag_name }} ${{ matrix.artifact }} --clobber
