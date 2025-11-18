@@ -38,6 +38,10 @@ jobs:
         with:
           go-version: 'stable'
 
+      # Install Fyne CLI tool
+      - name: Install Fyne CLI
+        run: go install fyne.io/fyne/v2/cmd/fyne@latest
+
       # Install platform-specific dependencies
       - name: Install Linux dependencies
         if: matrix.os == 'linux'
@@ -51,9 +55,32 @@ jobs:
           # macOS already has the necessary tools
           echo "macOS build environment ready"
 
-      # Build the application natively
+      # Build the application natively using fyne tool
       - name: Build Application
-        run: go build -o VibesAndFolders${{ matrix.os == 'windows' && '.exe' || '' }} ./cmd/vibesandfolders
+        run: fyne package -os ${{ matrix.os }} -src ./cmd/vibesandfolders
+
+      # The fyne package command creates different outputs per platform
+      - name: Rename Linux output
+        if: matrix.os == 'linux'
+        run: mv VibesAndFolders.tar.xz VibesAndFolders-linux.tar.xz || mv vibesandfolders VibesAndFolders
+
+      - name: Rename Windows output  
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          if (Test-Path "VibesAndFolders.exe") {
+            # Already named correctly
+          } elseif (Test-Path "vibesandfolders.exe") {
+            Rename-Item vibesandfolders.exe VibesAndFolders.exe
+          }
+
+      - name: Rename macOS output
+        if: matrix.os == 'macos'
+        run: |
+          # fyne package creates a .app bundle on macOS
+          if [ -d "VibesAndFolders.app" ]; then
+            echo "App bundle created successfully"
+          fi
 
       # Upload artifacts for non-release builds (raw binaries - GitHub will zip them)
       - name: Upload Artifacts (CI)
@@ -61,12 +88,20 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: VibesAndFolders-${{ matrix.os }}
-          path: VibesAndFolders${{ matrix.os == 'windows' && '.exe' || '' }}
+          path: |
+            VibesAndFolders${{ matrix.os == 'windows' && '.exe' || '' }}
+            VibesAndFolders.app
+            VibesAndFolders-linux.tar.xz
 
       # Package only for releases
       - name: Package Linux Build for Release
         if: github.event_name == 'release' && matrix.os == 'linux'
-        run: tar czvf ${{ matrix.artifact }} VibesAndFolders
+        run: |
+          if [ -f "VibesAndFolders-linux.tar.xz" ]; then
+            mv VibesAndFolders-linux.tar.xz ${{ matrix.artifact }}
+          else
+            tar czvf ${{ matrix.artifact }} VibesAndFolders
+          fi
 
       - name: Package Windows Build for Release
         if: github.event_name == 'release' && matrix.os == 'windows'
@@ -75,7 +110,13 @@ jobs:
 
       - name: Package macOS Build for Release
         if: github.event_name == 'release' && matrix.os == 'macos'
-        run: zip ${{ matrix.artifact }} VibesAndFolders
+        run: |
+          if [ -d "VibesAndFolders.app" ]; then
+            # Package the entire .app bundle
+            zip -r ${{ matrix.artifact }} VibesAndFolders.app
+          else
+            zip ${{ matrix.artifact }} VibesAndFolders
+          fi
 
       # Upload to release if this is a release event
       - name: Upload Release Assets
