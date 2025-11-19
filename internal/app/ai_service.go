@@ -29,6 +29,7 @@ type OpenAIRequest struct {
 	Model          string          `json:"model"`
 	Messages       []Message       `json:"messages"`
 	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
+	MaxTokens      int             `json:"max_tokens,omitempty"`
 }
 
 type Message struct {
@@ -60,6 +61,7 @@ func (s *OpenAIAIService) GetSuggestions(structure, userPrompt, basePath string)
 			{Role: "user", Content: fullPrompt},
 		},
 		ResponseFormat: &ResponseFormat{Type: "json_object"},
+		MaxTokens:      8192,
 	}
 
 	headers := map[string]string{
@@ -107,7 +109,8 @@ Rules:
 - Use paths relative to the base directory
 - "from" must reference existing files from the structure
 - "to" must include the full destination path with filename
-- May rename files when asked for.
+- Skip files that do not need to be changed, only output files that need changing
+- Rename files when asked for
 - Return empty array if no changes needed: {"operations": []}
 - No explanations or markdown, only JSON`
 }

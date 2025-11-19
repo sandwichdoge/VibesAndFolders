@@ -63,7 +63,7 @@ func (mw *MainWindow) initializeComponents() {
 		[]string{"Unlimited", "1 (Root Only)", "2", "3", "4", "5"},
 		func(s string) {},
 	)
-	mw.depthSelect.SetSelected("Unlimited")
+	mw.depthSelect.SetSelected("1 (Root Only)")
 
 	mw.cleanCheck = widget.NewCheck("Clean-up empty directories after execution", func(bool) {})
 	mw.cleanCheck.SetChecked(true)
@@ -222,7 +222,7 @@ func (mw *MainWindow) onAnalyze() {
 		}
 
 		fyne.Do(func() {
-			mw.statusLabel.SetText("Requesting analysis from AI, be patient...")
+			mw.statusLabel.SetText(fmt.Sprintf("Requesting analysis from %s, be patient...", mw.config.Model))
 		})
 
 		result := mw.orchestrator.AnalyzeDirectory(req)
