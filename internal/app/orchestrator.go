@@ -32,7 +32,24 @@ type AnalysisResult struct {
 	Error      error
 }
 
-func (o *Orchestrator) AnalyzeDirectory(req AnalysisRequest) AnalysisResult {
+type ExecutionRequest struct {
+	Operations []FileOperation
+	BasePath   string
+	CleanEmpty bool
+}
+
+func (o *Orchestrator) ExecuteOrganization(req ExecutionRequest) ExecutionResult {
+	o.logger.Info("Starting execution of %d operations", len(req.Operations))
+	result, err := o.fileService.ExecuteOperations(req.Operations, req.BasePath, req.CleanEmpty)
+	if err != nil {
+		o.logger.Error("Execution failed: %v", err)
+	} else {
+		o.logger.Info("Execution complete: %d successful, %d failed", result.SuccessCount, result.FailCount)
+	}
+	return result
+}
+
+func (o *Orchestrator) AnalyzeDirectory(req AnalysisRequest, onOperation OperationCallback) AnalysisResult {
 	result := AnalysisResult{}
 
 	if err := o.validator.ValidateDirectory(req.DirectoryPath); err != nil {
@@ -53,8 +70,11 @@ func (o *Orchestrator) AnalyzeDirectory(req AnalysisRequest) AnalysisResult {
 	}
 	result.Structure = structure
 
-	o.logger.Info("Requesting AI suggestions")
-	operations, err := o.aiService.GetSuggestions(structure, req.UserPrompt, req.DirectoryPath)
+	o.logger.Info("Requesting AI suggestions (Streaming)")
+
+	// Pass the callback here
+	operations, err := o.aiService.GetSuggestions(structure, req.UserPrompt, req.DirectoryPath, onOperation)
+
 	if err != nil {
 		result.Error = fmt.Errorf("failed to get AI suggestions: %w", err)
 		return result
@@ -65,19 +85,6 @@ func (o *Orchestrator) AnalyzeDirectory(req AnalysisRequest) AnalysisResult {
 	return result
 }
 
-type ExecutionRequest struct {
-	Operations []FileOperation
-	BasePath   string
-	CleanEmpty bool
-}
-
-func (o *Orchestrator) ExecuteOrganization(req ExecutionRequest) ExecutionResult {
-	o.logger.Info("Starting execution of %d operations", len(req.Operations))
-	result, err := o.fileService.ExecuteOperations(req.Operations, req.BasePath, req.CleanEmpty)
-	if err != nil {
-		o.logger.Error("Execution failed: %v", err)
-	} else {
-		o.logger.Info("Execution complete: %d successful, %d failed", result.SuccessCount, result.FailCount)
-	}
-	return result
+func (o *Orchestrator) GetDirectoryStructure(path string, maxDepth int) (string, error) {
+	return o.fileService.GetDirectoryStructure(path, maxDepth)
 }

@@ -1,8 +1,11 @@
 package app
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 )
@@ -21,15 +24,11 @@ func NewOpenAIAIService(config *Config, httpClient *HTTPClient, logger *Logger) 
 	}
 }
 
-type ResponseFormat struct {
-	Type string `json:"type"`
-}
-
 type OpenAIRequest struct {
-	Model          string          `json:"model"`
-	Messages       []Message       `json:"messages"`
-	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
-	MaxTokens      int             `json:"max_tokens,omitempty"`
+	Model     string    `json:"model"`
+	Messages  []Message `json:"messages"`
+	MaxTokens int       `json:"max_tokens,omitempty"`
+	Stream    bool      `json:"stream"` // Enable streaming
 }
 
 type Message struct {
@@ -37,22 +36,19 @@ type Message struct {
 	Content string `json:"content"`
 }
 
-type OpenAIResponse struct {
+// OpenAIStreamResponse matches the SSE data structure
+type OpenAIStreamResponse struct {
 	Choices []struct {
-		Message Message `json:"message"`
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
+		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 }
 
-type AIResponseWrapper struct {
-	Operations []FileOperation `json:"operations"`
-}
-
-func (s *OpenAIAIService) GetSuggestions(structure, userPrompt, basePath string) ([]FileOperation, error) {
+func (s *OpenAIAIService) GetSuggestions(structure, userPrompt, basePath string, onOperation OperationCallback) ([]FileOperation, error) {
 	systemPrompt := s.buildSystemPrompt()
 	fullPrompt := s.buildUserPrompt(basePath, structure, userPrompt)
-
-	s.logger.Debug("System Prompt: %s", systemPrompt)
-	s.logger.Debug("User Prompt: %s", fullPrompt)
 
 	reqBody := OpenAIRequest{
 		Model: s.config.Model,
@@ -60,8 +56,8 @@ func (s *OpenAIAIService) GetSuggestions(structure, userPrompt, basePath string)
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: fullPrompt},
 		},
-		ResponseFormat: &ResponseFormat{Type: "json_object"},
-		MaxTokens:      8192,
+		MaxTokens: 8192,
+		Stream:    true, // CRITICAL: Enable streaming
 	}
 
 	headers := map[string]string{
@@ -70,81 +66,134 @@ func (s *OpenAIAIService) GetSuggestions(structure, userPrompt, basePath string)
 		"X-Title":       "VibesAndFolders",
 	}
 
-	responseBody, err := s.httpClient.PostJSON(s.config.Endpoint, headers, reqBody)
+	streamBody, err := s.httpClient.PostStream(s.config.Endpoint, headers, reqBody)
 	if err != nil {
 		return nil, err
 	}
+	defer streamBody.Close()
 
-	var aiResp OpenAIResponse
-	if err := json.Unmarshal(responseBody, &aiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse API response: %w - Body: %s", err, truncate(string(responseBody), 200))
+	return s.processStream(streamBody, basePath, onOperation)
+}
+
+// processStream reads the SSE stream, accumulates tokens, and parses JSON lines
+func (s *OpenAIAIService) processStream(r io.Reader, basePath string, onOperation OperationCallback) ([]FileOperation, error) {
+	scanner := bufio.NewScanner(r)
+	var operations []FileOperation
+	var buffer bytes.Buffer // Accumulates content fragments
+
+	// To handle cases where the AI might split a JSON line across multiple tokens
+	// we accumulate text in 'buffer' and only parse when we see a newline.
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// SSE format usually starts with "data: "
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		data := strings.TrimPrefix(line, "data: ")
+		data = strings.TrimSpace(data)
+
+		if data == "[DONE]" {
+			break
+		}
+
+		var streamResp OpenAIStreamResponse
+		if err := json.Unmarshal([]byte(data), &streamResp); err != nil {
+			// Only log debug, don't fail whole stream for one bad chunk
+			s.logger.Debug("Failed to unmarshal stream chunk: %v", err)
+			continue
+		}
+
+		if len(streamResp.Choices) > 0 {
+			content := streamResp.Choices[0].Delta.Content
+			if content != "" {
+				buffer.WriteString(content)
+
+				// Check if we have a complete line (indicated by newline in the content)
+				// Note: We loop because one chunk might contain multiple newlines (multiple ops)
+				// or the newline might just finish the current op.
+				currentStr := buffer.String()
+				if strings.Contains(currentStr, "\n") {
+					parts := strings.Split(currentStr, "\n")
+
+					// Process all complete parts
+					// The last part is either empty (if ended with \n) or incomplete (wait for next chunk)
+					for i := 0; i < len(parts)-1; i++ {
+						rawLine := strings.TrimSpace(parts[i])
+						if rawLine != "" {
+							if op, err := s.parseSingleOperation(rawLine, basePath); err == nil {
+								operations = append(operations, op)
+								if onOperation != nil {
+									onOperation(op) // Trigger UI update
+								}
+							} else {
+								s.logger.Debug("Failed to parse JSON line: %s | Error: %v", rawLine, err)
+							}
+						}
+					}
+
+					// Keep the last part in the buffer
+					buffer.Reset()
+					buffer.WriteString(parts[len(parts)-1])
+				}
+			}
+		}
 	}
 
-	if len(aiResp.Choices) == 0 {
-		return nil, fmt.Errorf("no response from AI")
+	// Process any remaining data in buffer (if AI forgot final newline)
+	remaining := strings.TrimSpace(buffer.String())
+	if remaining != "" {
+		if op, err := s.parseSingleOperation(remaining, basePath); err == nil {
+			operations = append(operations, op)
+			if onOperation != nil {
+				onOperation(op)
+			}
+		}
 	}
 
-	content := s.cleanContent(aiResp.Choices[0].Message.Content)
-	s.logger.Debug("Cleaned AI Content: %s", truncate(content, 500))
-
-	operations, err := s.parseOperations(content, basePath)
-	if err != nil {
-		return nil, err
+	if err := scanner.Err(); err != nil {
+		return operations, fmt.Errorf("stream reading error: %w", err)
 	}
 
 	return operations, nil
 }
 
-func (s *OpenAIAIService) buildSystemPrompt() string {
-	return `You are a file organization assistant. Output only valid JSON.
+func (s *OpenAIAIService) parseSingleOperation(jsonLine, basePath string) (FileOperation, error) {
+	// Clean up potential markdown artifacts if the AI ignored instructions
+	jsonLine = strings.TrimPrefix(jsonLine, "```json")
+	jsonLine = strings.TrimPrefix(jsonLine, "```")
+	jsonLine = strings.TrimSuffix(jsonLine, "```")
+	jsonLine = strings.TrimSpace(jsonLine)
 
-Format:
-{
-  "operations": [
-    {"from": "path/to/file.txt", "to": "new/path/file.txt"}
-  ]
+	// Handle comma at end if AI treated it like a list
+	jsonLine = strings.TrimSuffix(jsonLine, ",")
+
+	var op FileOperation
+	if err := json.Unmarshal([]byte(jsonLine), &op); err != nil {
+		return op, err
+	}
+
+	// Sanitize paths
+	op.From = filepath.Clean(filepath.Join(basePath, op.From))
+	op.To = filepath.Clean(filepath.Join(basePath, op.To))
+
+	return op, nil
 }
 
+func (s *OpenAIAIService) buildSystemPrompt() string {
+	return `You are a file organization assistant. 
+You must output a stream of valid JSON objects.
 Rules:
-- Use paths relative to the base directory
-- "from" must reference existing files from the structure
-- "to" must include the full destination path with filename
-- Skip files that do not need to be changed, only output files that need changing
-- Rename files when asked for
-- Return empty array if no changes needed: {"operations": []}
-- No explanations or markdown, only JSON`
+1. Output format: JSON Lines. Each line must be a standalone valid JSON object: {"from": "...", "to": "..."}
+2. DO NOT use Markdown formatting.
+3. "from": path relative to base, must exist.
+4. "to": destination path relative to base.
+5. Only output files that need moving/renaming.
+`
 }
 
 func (s *OpenAIAIService) buildUserPrompt(basePath, structure, userPrompt string) string {
 	return fmt.Sprintf("Base directory: %s\n\nDirectory structure:\n%s\n\nUser instructions: %s", basePath, structure, userPrompt)
-}
-
-func (s *OpenAIAIService) cleanContent(content string) string {
-	content = strings.TrimSpace(content)
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
-	return strings.TrimSpace(content)
-}
-
-func (s *OpenAIAIService) parseOperations(content string, basePath string) ([]FileOperation, error) {
-	var responseWrapper AIResponseWrapper
-	if err := json.Unmarshal([]byte(content), &responseWrapper); err != nil {
-		return nil, fmt.Errorf("failed to parse AI response as JSON object: %w\nResponse: %s", err, truncate(content, 300))
-	}
-
-	operations := responseWrapper.Operations
-
-	for i := range operations {
-		operations[i].From = filepath.Clean(filepath.Join(basePath, operations[i].From))
-		operations[i].To = filepath.Clean(filepath.Join(basePath, operations[i].To))
-	}
-
-	return operations, nil
-}
-
-// Backward compatibility function
-func GetAISuggestions(structure, userPrompt, basePath string) ([]FileOperation, error) {
-	service := NewOpenAIAIService(GlobalConfig, NewHTTPClient(DefaultLogger), DefaultLogger)
-	return service.GetSuggestions(structure, userPrompt, basePath)
 }

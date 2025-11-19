@@ -1,8 +1,12 @@
 package app
 
+// Callback function type for streaming operations
+type OperationCallback func(op FileOperation)
+
 // AIService defines the contract for AI suggestion services
 type AIService interface {
-	GetSuggestions(structure, userPrompt, basePath string) ([]FileOperation, error)
+	// GetSuggestions now takes a callback to stream results
+	GetSuggestions(structure, userPrompt, basePath string, onOperation OperationCallback) ([]FileOperation, error)
 }
 
 // FileService defines the contract for file operations
@@ -13,7 +17,7 @@ type FileService interface {
 	CleanEmptyDirectories(rootPath string) (int, error)
 }
 
-// ExecutionResult holds the results of file operations
+// ExecutionResult and OperationResult remain unchanged...
 type ExecutionResult struct {
 	SuccessCount      int
 	FailCount         int
@@ -24,7 +28,6 @@ type ExecutionResult struct {
 	VerificationError error
 }
 
-// OperationResult holds the result of a single file operation
 type OperationResult struct {
 	Operation FileOperation
 	Success   bool

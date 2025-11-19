@@ -210,9 +210,15 @@ func (mw *MainWindow) onAnalyze() {
 	mw.progressBar.Show()
 	mw.analyzeBtn.Disable()
 	mw.executeBtn.Hide()
-	mw.rollbackBtn.Hide() // [NEW] Ensure rollback is hidden on new analysis
-	mw.statusLabel.SetText("Scanning directory...")
+	mw.rollbackBtn.Hide()
+	mw.statusLabel.SetText("Streaming analysis...")
+
+	// Initialize output with structure
+	// We will append operations to this
 	mw.setOutputText("")
+
+	// We need a thread-safe buffer for the UI text to avoid flickering
+	var outputBuffer strings.Builder
 
 	go func() {
 		req := app.AnalysisRequest{
@@ -221,11 +227,36 @@ func (mw *MainWindow) onAnalyze() {
 			MaxDepth:      maxDepth,
 		}
 
+		// 1. Get Structure first (fast)
+		structure, _ := mw.orchestrator.GetDirectoryStructure(dirPath, maxDepth)
+
 		fyne.Do(func() {
-			mw.statusLabel.SetText(fmt.Sprintf("Requesting analysis from %s, be patient...", mw.config.Model))
+			outputBuffer.WriteString(fmt.Sprintf("Directory Structure:\n%s\n\n=== AI Suggested Operations ===\n", structure))
+			mw.setOutputText(outputBuffer.String())
+			mw.statusLabel.SetText(fmt.Sprintf("Thinking via %s...", mw.config.Model))
 		})
 
-		result := mw.orchestrator.AnalyzeDirectory(req)
+		// 2. Define the callback
+		opCount := 0
+		onOperation := func(op app.FileOperation) {
+			// This runs in the background thread, need fyne.Do for UI
+			fyne.Do(func() {
+				opCount++
+				fromRel := mw.getRelativePath(mw.dirEntry.Text, op.From)
+				toRel := mw.getRelativePath(mw.dirEntry.Text, op.To)
+
+				line := fmt.Sprintf("%s → %s\n", fromRel, toRel)
+
+				// Append to buffer and update UI
+				outputBuffer.WriteString(line)
+				mw.setOutputText(outputBuffer.String())
+
+				mw.statusLabel.SetText(fmt.Sprintf("Found %d operations...", opCount))
+			})
+		}
+
+		// 3. Call Orchestrator with callback
+		result := mw.orchestrator.AnalyzeDirectory(req, onOperation)
 
 		fyne.Do(func() {
 			mw.progressBar.Hide()
@@ -238,22 +269,11 @@ func (mw *MainWindow) onAnalyze() {
 			}
 
 			if len(result.Operations) == 0 {
-				mw.setOutputText(fmt.Sprintf("Directory Structure:\n%s\n\nNo reorganization needed or AI returned no operations.", result.Structure))
 				mw.statusLabel.SetText("No changes suggested")
 				return
 			}
 
-			var commandsText strings.Builder
-			basePath := mw.dirEntry.Text
-			for _, op := range result.Operations {
-				fromRel := mw.getRelativePath(basePath, op.From)
-				toRel := mw.getRelativePath(basePath, op.To)
-				commandsText.WriteString(fmt.Sprintf("%s → %s\n", fromRel, toRel))
-			}
-
-			mw.setOutputText(fmt.Sprintf("Directory Structure:\n%s\n\n=== AI Suggested Operations (%d) ===\n%s", result.Structure, len(result.Operations), commandsText.String()))
 			mw.statusLabel.SetText(fmt.Sprintf("Ready to execute %d operations", len(result.Operations)))
-
 			mw.currentOperations = result.Operations
 			mw.executeBtn.Show()
 		})
