@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -154,6 +155,14 @@ func (mw *MainWindow) setOutputText(text string) {
 	mw.outputText.Refresh()
 }
 
+func (mw *MainWindow) getRelativePath(basePath, fullPath string) string {
+	relPath, err := filepath.Rel(basePath, fullPath)
+	if err != nil {
+		return fullPath
+	}
+	return relPath
+}
+
 func (mw *MainWindow) parseDepth() (int, error) {
 	selectedDepthStr := mw.depthSelect.Selected
 	if selectedDepthStr == "Unlimited" {
@@ -226,8 +235,11 @@ func (mw *MainWindow) onAnalyze() {
 			}
 
 			var commandsText strings.Builder
+			basePath := mw.dirEntry.Text
 			for _, op := range result.Operations {
-				commandsText.WriteString(fmt.Sprintf("%s → %s\n", op.From, op.To))
+				fromRel := mw.getRelativePath(basePath, op.From)
+				toRel := mw.getRelativePath(basePath, op.To)
+				commandsText.WriteString(fmt.Sprintf("%s → %s\n", fromRel, toRel))
 			}
 
 			mw.setOutputText(fmt.Sprintf("Directory Structure:\n%s\n\n=== AI Suggested Operations (%d) ===\n%s", result.Structure, len(result.Operations), commandsText.String()))
@@ -259,12 +271,15 @@ func (mw *MainWindow) onExecute() {
 
 func (mw *MainWindow) displayExecutionResult(result app.ExecutionResult) {
 	var resultsText strings.Builder
+	basePath := mw.dirEntry.Text
 
 	for _, opResult := range result.Operations {
+		fromRel := mw.getRelativePath(basePath, opResult.Operation.From)
+		toRel := mw.getRelativePath(basePath, opResult.Operation.To)
 		if opResult.Success {
-			resultsText.WriteString(fmt.Sprintf("✓ [SUCCESS] %s → %s\n", opResult.Operation.From, opResult.Operation.To))
+			resultsText.WriteString(fmt.Sprintf("✓ [SUCCESS] %s → %s\n", fromRel, toRel))
 		} else {
-			resultsText.WriteString(fmt.Sprintf("✗ [FAILED] %s → %s\n  Error: %v\n", opResult.Operation.From, opResult.Operation.To, opResult.Error))
+			resultsText.WriteString(fmt.Sprintf("✗ [FAILED] %s → %s\n  Error: %v\n", fromRel, toRel, opResult.Error))
 		}
 	}
 
