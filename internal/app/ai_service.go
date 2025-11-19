@@ -63,9 +63,9 @@ func (s *OpenAIAIService) GetSuggestions(structure, userPrompt, basePath string)
 	}
 
 	headers := map[string]string{
-		"Authorization":  fmt.Sprintf("Bearer %s", s.config.APIKey),
-		"HTTP-Referer":   "https://github.com/sandwichdoge/vibesandfolders",
-		"X-Title":        "VibesAndFolders",
+		"Authorization": fmt.Sprintf("Bearer %s", s.config.APIKey),
+		"HTTP-Referer":  "https://github.com/sandwichdoge/vibesandfolders",
+		"X-Title":       "VibesAndFolders",
 	}
 
 	responseBody, err := s.httpClient.PostJSON(s.config.Endpoint, headers, reqBody)
@@ -94,29 +94,26 @@ func (s *OpenAIAIService) GetSuggestions(structure, userPrompt, basePath string)
 }
 
 func (s *OpenAIAIService) buildSystemPrompt() string {
-	return `You are a file organization assistant. You MUST output a valid JSON object.
+	return `You are a file organization assistant. Output only valid JSON.
 
-This JSON object must contain a single key: "operations".
-The value of "operations" MUST be a JSON array of file operation objects.
-
-CRITICAL RULES:
-1. Each object in the "operations" array must have "from" and "to" fields with paths RELATIVE to the base directory.
-2. Ensure "from" paths point to existing files/folders from the structure.
-3. Ensure "to" paths include the full RELATIVE destination path with filename.
-4. If no operations are needed, you must return an empty array: {"operations": []}
-5. Do NOT include any explanations, markdown, or other text outside the JSON object.
-
-Example output format:
+Format:
 {
   "operations": [
-    {"from": "file1.txt", "to": "Documents/file1.txt"},
-    {"from": "old_images/file2.jpg", "to": "Images/file2.jpg"}
+    {"from": "path/to/file.txt", "to": "new/path/file.txt"}
   ]
-}`
+}
+
+Rules:
+- Use paths relative to the base directory
+- "from" must reference existing files from the structure
+- "to" must include the full destination path with filename
+- May rename files when asked for.
+- Return empty array if no changes needed: {"operations": []}
+- No explanations or markdown, only JSON`
 }
 
 func (s *OpenAIAIService) buildUserPrompt(basePath, structure, userPrompt string) string {
-	return fmt.Sprintf("Base directory: %s\n\nDirectory structure (relative paths):\n%s\n\nUser instructions: %s\n\nProvide JSON object (using relative paths):", basePath, structure, userPrompt)
+	return fmt.Sprintf("Base directory: %s\n\nDirectory structure:\n%s\n\nUser instructions: %s", basePath, structure, userPrompt)
 }
 
 func (s *OpenAIAIService) cleanContent(content string) string {
