@@ -10,14 +10,18 @@ import (
 	"strings"
 )
 
-type OpenAIAIService struct {
+const (
+	defaultMaxTokens = 8192
+)
+
+type OpenAIService struct {
 	config     *Config
 	httpClient *HTTPClient
 	logger     *Logger
 }
 
-func NewOpenAIAIService(config *Config, httpClient *HTTPClient, logger *Logger) *OpenAIAIService {
-	return &OpenAIAIService{
+func NewOpenAIService(config *Config, httpClient *HTTPClient, logger *Logger) *OpenAIService {
+	return &OpenAIService{
 		config:     config,
 		httpClient: httpClient,
 		logger:     logger,
@@ -46,7 +50,7 @@ type OpenAIStreamResponse struct {
 	} `json:"choices"`
 }
 
-func (s *OpenAIAIService) GetSuggestions(structure, userPrompt, basePath string, onOperation OperationCallback) ([]FileOperation, error) {
+func (s *OpenAIService) GetSuggestions(structure, userPrompt, basePath string, onOperation OperationCallback) ([]FileOperation, error) {
 	systemPrompt := s.buildSystemPrompt()
 	fullPrompt := s.buildUserPrompt(basePath, structure, userPrompt)
 
@@ -56,8 +60,8 @@ func (s *OpenAIAIService) GetSuggestions(structure, userPrompt, basePath string,
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: fullPrompt},
 		},
-		MaxTokens: 8192,
-		Stream:    true, // CRITICAL: Enable streaming
+		MaxTokens: defaultMaxTokens,
+		Stream:    true,
 	}
 
 	headers := map[string]string{
@@ -76,7 +80,7 @@ func (s *OpenAIAIService) GetSuggestions(structure, userPrompt, basePath string,
 }
 
 // processStream reads the SSE stream, accumulates tokens, and parses JSON lines
-func (s *OpenAIAIService) processStream(r io.Reader, basePath string, onOperation OperationCallback) ([]FileOperation, error) {
+func (s *OpenAIService) processStream(r io.Reader, basePath string, onOperation OperationCallback) ([]FileOperation, error) {
 	scanner := bufio.NewScanner(r)
 	var operations []FileOperation
 	var buffer bytes.Buffer // Accumulates content fragments
@@ -128,6 +132,9 @@ func (s *OpenAIAIService) processStream(r io.Reader, basePath string, onOperatio
 								if onOperation != nil {
 									onOperation(op) // Trigger UI update
 								}
+							} else if err.Error() == "source and destination are identical" {
+								// Silently ignore, do not log as error, do not send to UI
+								continue
 							} else {
 								s.logger.Debug("Failed to parse JSON line: %s | Error: %v", rawLine, err)
 							}
@@ -160,7 +167,7 @@ func (s *OpenAIAIService) processStream(r io.Reader, basePath string, onOperatio
 	return operations, nil
 }
 
-func (s *OpenAIAIService) parseSingleOperation(jsonLine, basePath string) (FileOperation, error) {
+func (s *OpenAIService) parseSingleOperation(jsonLine, basePath string) (FileOperation, error) {
 	// Clean up potential markdown artifacts if the AI ignored instructions
 	jsonLine = strings.TrimPrefix(jsonLine, "```json")
 	jsonLine = strings.TrimPrefix(jsonLine, "```")
@@ -179,10 +186,14 @@ func (s *OpenAIAIService) parseSingleOperation(jsonLine, basePath string) (FileO
 	op.From = filepath.Clean(filepath.Join(basePath, op.From))
 	op.To = filepath.Clean(filepath.Join(basePath, op.To))
 
+	if op.From == op.To {
+		return op, fmt.Errorf("source and destination are identical")
+	}
+
 	return op, nil
 }
 
-func (s *OpenAIAIService) buildSystemPrompt() string {
+func (s *OpenAIService) buildSystemPrompt() string {
 	return `You are a file organization assistant. 
 You must output a stream of valid JSON objects.
 Rules:
@@ -194,6 +205,6 @@ Rules:
 `
 }
 
-func (s *OpenAIAIService) buildUserPrompt(basePath, structure, userPrompt string) string {
+func (s *OpenAIService) buildUserPrompt(basePath, structure, userPrompt string) string {
 	return fmt.Sprintf("Base directory: %s\n\nDirectory structure:\n%s\n\nUser instructions: %s", basePath, structure, userPrompt)
 }

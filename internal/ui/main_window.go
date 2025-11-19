@@ -14,11 +14,19 @@ import (
 	"io.github.sandwichdoge.vibesandfolders/internal/app"
 )
 
+const (
+	defaultWindowWidth  = 900
+	defaultWindowHeight = 700
+	outputTextRows      = 15
+	promptTextRows      = 3
+)
+
 type MainWindow struct {
 	app          fyne.App
 	window       fyne.Window
 	orchestrator *app.Orchestrator
 	config       *app.Config
+	logger       *app.Logger
 
 	dirEntry    *widget.Entry
 	promptEntry *widget.Entry
@@ -29,19 +37,20 @@ type MainWindow struct {
 	progressBar *widget.ProgressBarInfinite
 	executeBtn  *widget.Button
 	analyzeBtn  *widget.Button
-	rollbackBtn *widget.Button // [NEW]
+	rollbackBtn *widget.Button
 
 	lastOutputContent string
 	currentOperations []app.FileOperation
-	lastSuccessfulOps []app.FileOperation // [NEW] To track what to rollback
+	lastSuccessfulOps []app.FileOperation
 }
 
-func NewMainWindow(fyneApp fyne.App, orchestrator *app.Orchestrator, config *app.Config) *MainWindow {
+func NewMainWindow(fyneApp fyne.App, orchestrator *app.Orchestrator, config *app.Config, logger *app.Logger) *MainWindow {
 	mw := &MainWindow{
 		app:          fyneApp,
 		window:       fyneApp.NewWindow("VibesAndFolders - AI-Powered File Organizer"),
 		orchestrator: orchestrator,
 		config:       config,
+		logger:       logger,
 	}
 
 	mw.initializeComponents()
@@ -57,7 +66,7 @@ func (mw *MainWindow) initializeComponents() {
 
 	mw.promptEntry = widget.NewMultiLineEntry()
 	mw.promptEntry.SetPlaceHolder("Enter your organization instructions (e.g., 'Organize by file type into folders')")
-	mw.promptEntry.SetMinRowsVisible(3)
+	mw.promptEntry.SetMinRowsVisible(promptTextRows)
 
 	mw.depthSelect = widget.NewSelect(
 		[]string{"Unlimited", "1 (Root Only)", "2", "3", "4", "5"},
@@ -71,7 +80,7 @@ func (mw *MainWindow) initializeComponents() {
 	mw.outputText = widget.NewMultiLineEntry()
 	mw.outputText.SetPlaceHolder("Directory structure and AI suggestions will appear here...")
 	mw.outputText.Wrapping = fyne.TextWrapWord
-	mw.outputText.SetMinRowsVisible(15)
+	mw.outputText.SetMinRowsVisible(outputTextRows)
 	mw.outputText.OnChanged = func(content string) {
 		if content != mw.lastOutputContent {
 			mw.outputText.SetText(mw.lastOutputContent)
@@ -85,9 +94,8 @@ func (mw *MainWindow) initializeComponents() {
 	mw.executeBtn = widget.NewButton("✓ Execute These Operations", mw.onExecute)
 	mw.executeBtn.Hide()
 
-	// [NEW] Initialize Rollback Button
 	mw.rollbackBtn = widget.NewButton("⟲ Undo Changes (Rollback)", mw.onRollback)
-	mw.rollbackBtn.Importance = widget.DangerImportance // Make it red/distinct
+	mw.rollbackBtn.Importance = widget.DangerImportance
 	mw.rollbackBtn.Hide()
 
 	mw.analyzeBtn = widget.NewButton("Analyze & Get AI Suggestions", mw.onAnalyze)
@@ -127,7 +135,7 @@ func (mw *MainWindow) setupLayout() {
 		mw.progressBar,
 		mw.statusLabel,
 		mw.executeBtn,
-		mw.rollbackBtn, // [NEW] Add to layout
+		mw.rollbackBtn,
 	)
 
 	content := container.NewBorder(
@@ -140,13 +148,13 @@ func (mw *MainWindow) setupLayout() {
 
 	paddedContent := container.NewPadded(content)
 	mw.window.SetContent(paddedContent)
-	mw.window.Resize(fyne.NewSize(900, 700))
+	mw.window.Resize(fyne.NewSize(defaultWindowWidth, defaultWindowHeight))
 }
 
 func (mw *MainWindow) setupMenu() {
 	settingsMenu := fyne.NewMenu("Settings",
 		fyne.NewMenuItem("Configure...", func() {
-			configWindow := NewConfigWindow(mw.app, mw.config)
+			configWindow := NewConfigWindow(mw.app, mw.config, mw.logger)
 			configWindow.Show(nil, nil)
 		}),
 	)
@@ -294,12 +302,11 @@ func (mw *MainWindow) onExecute() {
 		result := mw.orchestrator.ExecuteOrganization(req)
 
 		fyne.Do(func() {
-			mw.displayExecutionResult(result, false) // [NEW] Pass flag indicating this is NOT a rollback
+			mw.displayExecutionResult(result, false)
 		})
 	}()
 }
 
-// [NEW] Rollback Handler
 func (mw *MainWindow) onRollback() {
 	mw.rollbackBtn.Hide()
 	mw.progressBar.Show()
@@ -336,7 +343,6 @@ func (mw *MainWindow) displayExecutionResult(result app.ExecutionResult, isRollb
 	var resultsText strings.Builder
 	basePath := mw.dirEntry.Text
 
-	// [NEW] Reset successful ops tracking if this is a fresh execution
 	if !isRollback {
 		mw.lastSuccessfulOps = []app.FileOperation{}
 	}
@@ -351,7 +357,6 @@ func (mw *MainWindow) displayExecutionResult(result app.ExecutionResult, isRollb
 		toRel := mw.getRelativePath(basePath, opResult.Operation.To)
 		if opResult.Success {
 			resultsText.WriteString(fmt.Sprintf("✓ [SUCCESS] %s → %s\n", fromRel, toRel))
-			// [NEW] Store successful op for potential rollback (only if we are not currently rolling back)
 			if !isRollback {
 				mw.lastSuccessfulOps = append(mw.lastSuccessfulOps, opResult.Operation)
 			}
@@ -386,7 +391,6 @@ func (mw *MainWindow) displayExecutionResult(result app.ExecutionResult, isRollb
 	newContent := fmt.Sprintf("=== %s ===\n%s", title, resultsText.String())
 	mw.setOutputText(newContent)
 
-	// [NEW] Logic to show Rollback button
 	if !isRollback && len(mw.lastSuccessfulOps) > 0 {
 		mw.rollbackBtn.Show()
 	} else if isRollback && result.FailCount == 0 {

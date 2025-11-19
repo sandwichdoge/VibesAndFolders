@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"io"
-	"log"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/storage"
@@ -24,91 +23,92 @@ type Config struct {
 	Model    string `json:"model"`
 }
 
-var GlobalConfig *Config
-
-func LoadConfig(a fyne.App) {
-	GlobalConfig = &Config{}
+// LoadConfig loads configuration from app storage
+func LoadConfig(a fyne.App, logger *Logger) *Config {
+	config := &Config{}
 
 	// Get config URI from app's storage root
 	rootURI := a.Storage().RootURI()
 	configURI, err := storage.Child(rootURI, configFileName)
 	if err != nil {
-		log.Printf("Error creating config URI: %v. Using defaults.", err)
-		loadDefaults()
-		return
+		logger.Info("Error creating config URI: %v. Using defaults.", err)
+		loadDefaults(config)
+		return config
 	}
 
 	exists, err := storage.Exists(configURI)
 	if err != nil {
-		log.Printf("Error checking config existence: %v. Using defaults.", err)
-		loadDefaults()
-		return
+		logger.Info("Error checking config existence: %v. Using defaults.", err)
+		loadDefaults(config)
+		return config
 	}
 
 	if !exists {
-		log.Println("No config file found. Creating with defaults.")
-		loadDefaults()
-		SaveConfig(a) // Save defaults to create the file
-		return
+		logger.Info("No config file found. Creating with defaults.")
+		loadDefaults(config)
+		SaveConfig(a, config, logger)
+		return config
 	}
 
 	// Read config file
 	rc, err := storage.Reader(configURI)
 	if err != nil {
-		log.Printf("Error opening config file: %v. Using defaults.", err)
-		loadDefaults()
-		return
+		logger.Info("Error opening config file: %v. Using defaults.", err)
+		loadDefaults(config)
+		return config
 	}
 	defer rc.Close()
 
 	data, err := io.ReadAll(rc)
 	if err != nil {
-		log.Printf("Error reading config file: %v. Using defaults.", err)
-		loadDefaults()
-		return
+		logger.Info("Error reading config file: %v. Using defaults.", err)
+		loadDefaults(config)
+		return config
 	}
 
-	if err := json.Unmarshal(data, GlobalConfig); err != nil {
-		log.Printf("Error parsing config JSON: %v. Using defaults.", err)
-		loadDefaults()
-		return
+	if err := json.Unmarshal(data, config); err != nil {
+		logger.Info("Error parsing config JSON: %v. Using defaults.", err)
+		loadDefaults(config)
+		return config
 	}
 
-	log.Println("Configuration loaded successfully.")
+	logger.Info("Configuration loaded successfully.")
+	return config
 }
 
-func SaveConfig(a fyne.App) {
-	data, err := json.MarshalIndent(GlobalConfig, "", "  ")
+// SaveConfig saves configuration to app storage
+func SaveConfig(a fyne.App, config *Config, logger *Logger) {
+	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		log.Printf("Error marshaling config: %v", err)
+		logger.Info("Error marshaling config: %v", err)
 		return
 	}
 
 	rootURI := a.Storage().RootURI()
 	configURI, err := storage.Child(rootURI, configFileName)
 	if err != nil {
-		log.Printf("Error creating config URI for saving: %v", err)
+		logger.Info("Error creating config URI for saving: %v", err)
 		return
 	}
 
 	// Write config file (creates if doesn't exist)
 	wc, err := storage.Writer(configURI)
 	if err != nil {
-		log.Printf("Error opening config file for writing: %v", err)
+		logger.Info("Error opening config file for writing: %v", err)
 		return
 	}
 	defer wc.Close()
 
 	if _, err := wc.Write(data); err != nil {
-		log.Printf("Error writing config file: %v", err)
+		logger.Info("Error writing config file: %v", err)
 		return
 	}
 
-	log.Println("Configuration saved.")
+	logger.Info("Configuration saved.")
 }
 
-func loadDefaults() {
-	GlobalConfig.Endpoint = defaultEndpoint
-	GlobalConfig.APIKey = DefaultAPIKey
-	GlobalConfig.Model = defaultModel
+func loadDefaults(config *Config) {
+	config.Endpoint = defaultEndpoint
+	config.APIKey = DefaultAPIKey
+	config.Model = defaultModel
 }

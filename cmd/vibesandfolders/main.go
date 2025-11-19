@@ -1,30 +1,30 @@
 package main
 
 import (
-	"fyne.io/fyne/v2/app"
+	fyneapp "fyne.io/fyne/v2/app"
 
-	adminapp "io.github.sandwichdoge.vibesandfolders/internal/app"
+	"io.github.sandwichdoge.vibesandfolders/internal/app"
 	"io.github.sandwichdoge.vibesandfolders/internal/ui"
 )
 
 func main() {
-	myApp := app.NewWithID("io.github.sandwichdoge.vibesandfolders")
+	myApp := fyneapp.NewWithID("io.github.sandwichdoge.vibesandfolders")
 
-	adminapp.LoadConfig(myApp)
+	logger := app.NewLogger(true)
+	config := app.LoadConfig(myApp, logger)
 
-	logger := adminapp.NewLogger(true)
-	validator := adminapp.NewValidator()
-	httpClient := adminapp.NewHTTPClient(logger)
+	validator := app.NewValidator()
+	httpClient := app.NewHTTPClient(logger)
 
-	aiService := adminapp.NewOpenAIAIService(adminapp.GlobalConfig, httpClient, logger)
-	fileService := adminapp.NewFileService(validator, logger)
+	aiService := app.NewOpenAIService(config, httpClient, logger)
+	fileService := app.NewFileService(validator, logger)
 
-	orchestrator := adminapp.NewOrchestrator(aiService, fileService, validator, logger)
+	orchestrator := app.NewOrchestrator(aiService, fileService, validator, logger)
 
-	mainWindow := ui.NewMainWindow(myApp, orchestrator, adminapp.GlobalConfig)
+	mainWindow := ui.NewMainWindow(myApp, orchestrator, config, logger)
 
-	if adminapp.GlobalConfig.APIKey == adminapp.DefaultAPIKey || adminapp.GlobalConfig.Endpoint == "" {
-		configWindow := ui.NewConfigWindow(myApp, adminapp.GlobalConfig)
+	if config.APIKey == app.DefaultAPIKey || config.Endpoint == "" {
+		configWindow := ui.NewConfigWindow(myApp, config, logger)
 		configWindow.Show(
 			func() {
 				mainWindow.Show()

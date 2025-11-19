@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"log"
+	"strings"
 )
 
 type Logger struct {
@@ -29,16 +30,8 @@ func (l *Logger) Error(format string, args ...interface{}) {
 
 func (l *Logger) DebugSection(title string, content string) {
 	if l.debugEnabled {
-		fmt.Printf("=== %s ===\n%s\n%s\n", title, content, repeat("=", len(title)+8))
+		fmt.Printf("=== %s ===\n%s\n%s\n", title, content, strings.Repeat("=", len(title)+8))
 	}
-}
-
-func repeat(s string, count int) string {
-	result := ""
-	for i := 0; i < count; i++ {
-		result += s
-	}
-	return result
 }
 
 var DefaultLogger = NewLogger(true)

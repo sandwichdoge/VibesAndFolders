@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -14,12 +13,14 @@ import (
 type ConfigWindow struct {
 	app    fyne.App
 	config *app.Config
+	logger *app.Logger
 }
 
-func NewConfigWindow(fyneApp fyne.App, config *app.Config) *ConfigWindow {
+func NewConfigWindow(fyneApp fyne.App, config *app.Config, logger *app.Logger) *ConfigWindow {
 	return &ConfigWindow{
 		app:    fyneApp,
 		config: config,
+		logger: logger,
 	}
 }
 
@@ -47,14 +48,14 @@ func (cw *ConfigWindow) Show(onFirstRunSubmit func(), onFirstRunCancel func()) {
 		},
 		OnSubmit: func() {
 			if strings.TrimSpace(endpointEntry.Text) == "" {
-				dialog.ShowError(fmt.Errorf("endpoint field cannot be empty"), configWin)
+				dialog.ShowError(app.ErrEmptyEndpoint, configWin)
 				return
 			}
 
 			cw.config.Endpoint = endpointEntry.Text
 			cw.config.APIKey = apiKeyEntry.Text
 			cw.config.Model = modelEntry.Text
-			app.SaveConfig(cw.app)
+			app.SaveConfig(cw.app, cw.config, cw.logger)
 
 			dialog.ShowInformation("Saved", "Configuration has been saved.", configWin)
 			configWin.Close()
