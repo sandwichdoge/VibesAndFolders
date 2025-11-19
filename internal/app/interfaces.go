@@ -13,14 +13,6 @@ type FileService interface {
 	CleanEmptyDirectories(rootPath string) (int, error)
 }
 
-// ConfigService defines the contract for configuration management
-type ConfigService interface {
-	Load() error
-	Save() error
-	GetConfig() *Config
-	SetConfig(config *Config)
-}
-
 // ExecutionResult holds the results of file operations
 type ExecutionResult struct {
 	SuccessCount      int
