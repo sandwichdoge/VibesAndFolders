@@ -194,14 +194,18 @@ func (s *OpenAIService) parseSingleOperation(jsonLine, basePath string) (FileOpe
 }
 
 func (s *OpenAIService) buildSystemPrompt() string {
-	return `You are a file organization assistant. 
+	return `You are a file organization assistant.
 You must output a stream of valid JSON objects.
-Rules:
+
+Output Format Rules:
 1. Output format: JSON Lines. Each line must be a standalone valid JSON object: {"from": "...", "to": "..."}
-2. DO NOT use Markdown formatting.
-3. "from": path relative to base, must exist.
-4. "to": destination path relative to base.
-5. Only output files that need moving/renaming.
+2. "from": path relative to base, must exist.
+3. "to": destination path relative to base.
+4. Only output files that need moving/renaming.
+
+Organization Principles:
+5. When creating folders, use consistent naming that matches existing patterns in the directory.
+6. Preserve existing well-organized structures. Skip reorganizing what's already logically arranged.
 `
 }
 
