@@ -20,18 +20,20 @@ type MainWindow struct {
 	orchestrator *app.Orchestrator
 	config       *app.Config
 
-	dirEntry     *widget.Entry
-	promptEntry  *widget.Entry
-	depthSelect  *widget.Select
-	cleanCheck   *widget.Check
-	outputText   *widget.Entry
-	statusLabel  *widget.Label
-	progressBar  *widget.ProgressBarInfinite
-	executeBtn   *widget.Button
-	analyzeBtn   *widget.Button
+	dirEntry    *widget.Entry
+	promptEntry *widget.Entry
+	depthSelect *widget.Select
+	cleanCheck  *widget.Check
+	outputText  *widget.Entry
+	statusLabel *widget.Label
+	progressBar *widget.ProgressBarInfinite
+	executeBtn  *widget.Button
+	analyzeBtn  *widget.Button
+	rollbackBtn *widget.Button // [NEW]
 
-	lastOutputContent  string
-	currentOperations  []app.FileOperation
+	lastOutputContent string
+	currentOperations []app.FileOperation
+	lastSuccessfulOps []app.FileOperation // [NEW] To track what to rollback
 }
 
 func NewMainWindow(fyneApp fyne.App, orchestrator *app.Orchestrator, config *app.Config) *MainWindow {
@@ -83,6 +85,11 @@ func (mw *MainWindow) initializeComponents() {
 	mw.executeBtn = widget.NewButton("✓ Execute These Operations", mw.onExecute)
 	mw.executeBtn.Hide()
 
+	// [NEW] Initialize Rollback Button
+	mw.rollbackBtn = widget.NewButton("⟲ Undo Changes (Rollback)", mw.onRollback)
+	mw.rollbackBtn.Importance = widget.DangerImportance // Make it red/distinct
+	mw.rollbackBtn.Hide()
+
 	mw.analyzeBtn = widget.NewButton("Analyze & Get AI Suggestions", mw.onAnalyze)
 }
 
@@ -101,7 +108,7 @@ func (mw *MainWindow) setupLayout() {
 	scanOptions := container.NewHBox(
 		widget.NewLabel("Scan Depth:"),
 		mw.depthSelect,
-		widget.NewLabel("   "),
+		widget.NewLabel("    "),
 		mw.cleanCheck,
 	)
 
@@ -120,6 +127,7 @@ func (mw *MainWindow) setupLayout() {
 		mw.progressBar,
 		mw.statusLabel,
 		mw.executeBtn,
+		mw.rollbackBtn, // [NEW] Add to layout
 	)
 
 	content := container.NewBorder(
@@ -202,6 +210,7 @@ func (mw *MainWindow) onAnalyze() {
 	mw.progressBar.Show()
 	mw.analyzeBtn.Disable()
 	mw.executeBtn.Hide()
+	mw.rollbackBtn.Hide() // [NEW] Ensure rollback is hidden on new analysis
 	mw.statusLabel.SetText("Scanning directory...")
 	mw.setOutputText("")
 
@@ -253,6 +262,7 @@ func (mw *MainWindow) onAnalyze() {
 
 func (mw *MainWindow) onExecute() {
 	mw.executeBtn.Hide()
+	mw.rollbackBtn.Hide() // Hide during execution
 
 	go func() {
 		req := app.ExecutionRequest{
@@ -264,20 +274,67 @@ func (mw *MainWindow) onExecute() {
 		result := mw.orchestrator.ExecuteOrganization(req)
 
 		fyne.Do(func() {
-			mw.displayExecutionResult(result)
+			mw.displayExecutionResult(result, false) // [NEW] Pass flag indicating this is NOT a rollback
 		})
 	}()
 }
 
-func (mw *MainWindow) displayExecutionResult(result app.ExecutionResult) {
+// [NEW] Rollback Handler
+func (mw *MainWindow) onRollback() {
+	mw.rollbackBtn.Hide()
+	mw.progressBar.Show()
+	mw.statusLabel.SetText("Rolling back changes...")
+
+	go func() {
+		// Create inverse operations
+		// We must iterate backwards to handle chained moves correctly (A->B, B->C reversed is C->B, B->A)
+		var inverseOps []app.FileOperation
+		for i := len(mw.lastSuccessfulOps) - 1; i >= 0; i-- {
+			originalOp := mw.lastSuccessfulOps[i]
+			inverseOps = append(inverseOps, app.FileOperation{
+				From: originalOp.To,   // Swap From
+				To:   originalOp.From, // Swap To
+			})
+		}
+
+		req := app.ExecutionRequest{
+			Operations: inverseOps,
+			BasePath:   mw.dirEntry.Text,
+			CleanEmpty: false, // Usually don't want to clean empty dirs during rollback, or make it optional. Safest is false to ensure structure restoration.
+		}
+
+		result := mw.orchestrator.ExecuteOrganization(req)
+
+		fyne.Do(func() {
+			mw.progressBar.Hide()
+			mw.displayExecutionResult(result, true) // Pass flag indicating this IS a rollback
+		})
+	}()
+}
+
+func (mw *MainWindow) displayExecutionResult(result app.ExecutionResult, isRollback bool) {
 	var resultsText strings.Builder
 	basePath := mw.dirEntry.Text
+
+	// [NEW] Reset successful ops tracking if this is a fresh execution
+	if !isRollback {
+		mw.lastSuccessfulOps = []app.FileOperation{}
+	}
+
+	title := "Execution Results"
+	if isRollback {
+		title = "Rollback Results"
+	}
 
 	for _, opResult := range result.Operations {
 		fromRel := mw.getRelativePath(basePath, opResult.Operation.From)
 		toRel := mw.getRelativePath(basePath, opResult.Operation.To)
 		if opResult.Success {
 			resultsText.WriteString(fmt.Sprintf("✓ [SUCCESS] %s → %s\n", fromRel, toRel))
+			// [NEW] Store successful op for potential rollback (only if we are not currently rolling back)
+			if !isRollback {
+				mw.lastSuccessfulOps = append(mw.lastSuccessfulOps, opResult.Operation)
+			}
 		} else {
 			resultsText.WriteString(fmt.Sprintf("✗ [FAILED] %s → %s\n  Error: %v\n", fromRel, toRel, opResult.Error))
 		}
@@ -306,19 +363,34 @@ func (mw *MainWindow) displayExecutionResult(result app.ExecutionResult) {
 	finalStatus := fmt.Sprintf("Completed: %d successful, %d failed", result.SuccessCount, result.FailCount)
 	mw.statusLabel.SetText(finalStatus)
 
-	newContent := fmt.Sprintf("=== Execution Results ===\n%s", resultsText.String())
+	newContent := fmt.Sprintf("=== %s ===\n%s", title, resultsText.String())
 	mw.setOutputText(newContent)
 
+	// [NEW] Logic to show Rollback button
+	if !isRollback && len(mw.lastSuccessfulOps) > 0 {
+		mw.rollbackBtn.Show()
+	} else if isRollback && result.FailCount == 0 {
+		// If rollback finished successfully, we return to the "Ready to Execute" state
+		mw.executeBtn.Show()
+		mw.statusLabel.SetText("Rollback Complete. Ready to Execute original plan.")
+	}
+
 	if result.FailCount > 0 || !verificationSuccess {
-		title := "Execution Warnings"
+		msgTitle := "Execution Warnings"
 		msg := finalStatus + "\n\n" + verificationMsg
 		if result.FailCount > 0 {
 			msg += "\n\nSome operations failed."
 		}
 		msg += "\nCheck the output log for details."
-		dialog.ShowInformation(title, msg, mw.window)
+		dialog.ShowInformation(msgTitle, msg, mw.window)
 	} else {
-		dialog.ShowInformation("Success", "All operations executed successfully!\n"+verificationMsg, mw.window)
+		// Only show popup success if it's a fresh execution.
+		// For rollback, the UI update is sufficient usually, or we can show it too.
+		msgTitle := "Success"
+		if isRollback {
+			msgTitle = "Rollback Successful"
+		}
+		dialog.ShowInformation(msgTitle, "All operations processed successfully!\n"+verificationMsg, mw.window)
 	}
 }
 
