@@ -1,1 +1,0 @@
-code2prompt -e *.mod -e *.sum -e assets/ -e *.sh -e *.gguf -e *.json -e *.txt .

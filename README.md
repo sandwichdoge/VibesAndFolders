@@ -10,17 +10,12 @@ All decisions are entirely based on filenames, it does not read the file content
 
 ### Basic Usage:
 
-Launch the application.
-
-Go to Settings > Configure to enter your AI Provider details (Endpoint and API Key). Compatible with locally hosted models.
-
-Click Browse to select the messy folder you want to clean up.
-
-Type your instructions in the text box (e.g., "Move all images into a Photos folder and documents into a Docs folder").
-
-Click Analyze to see a preview of the changes.
-
-If the preview looks correct, click Execute to apply the changes.
+- Launch the application.
+- Go to Settings > Configure to enter your AI Provider details (Endpoint and API Key). Compatible with locally hosted models.
+- Click Browse to select the messy folder you want to clean up.
+- Type your instructions in the text box (e.g., "Move all images into a Photos folder and documents into a Docs folder").
+- Click Analyze to see a preview of the changes.
+- If the preview looks correct, click Execute to apply the changes.
 
 **Downloads (Mac, Windows, Linux):** https://github.com/sandwichdoge/vibesandfolders/releases/
 
