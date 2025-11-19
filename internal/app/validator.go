@@ -51,10 +51,12 @@ func (v *Validator) ValidateConfig(config *Config) error {
 }
 
 func (v *Validator) ValidateFileOperation(op FileOperation) error {
-	if _, err := os.Stat(op.From); os.IsNotExist(err) {
+	// Use Lstat instead of Stat to handle symlinks properly
+	// Lstat doesn't follow symlinks, so it will succeed even if the symlink target doesn't exist
+	if _, err := os.Lstat(op.From); os.IsNotExist(err) {
 		return ErrSourceNotExist
 	}
-	if _, err := os.Stat(op.To); err == nil {
+	if _, err := os.Lstat(op.To); err == nil {
 		return ErrDestinationExists
 	}
 	return nil

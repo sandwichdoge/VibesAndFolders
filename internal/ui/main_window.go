@@ -39,9 +39,9 @@ type MainWindow struct {
 	analyzeBtn  *widget.Button
 	rollbackBtn *widget.Button
 
-	lastOutputContent string
-	currentOperations []app.FileOperation
-	lastSuccessfulOps []app.FileOperation
+	lastOutputContent    string
+	currentOperations    []app.FileOperation
+	lastSuccessfulResults []app.OperationResult
 }
 
 func NewMainWindow(fyneApp fyne.App, orchestrator *app.Orchestrator, config *app.Config, logger *app.Logger) *MainWindow {
@@ -316,11 +316,11 @@ func (mw *MainWindow) onRollback() {
 		// Create inverse operations
 		// We must iterate backwards to handle chained moves correctly (A->B, B->C reversed is C->B, B->A)
 		var inverseOps []app.FileOperation
-		for i := len(mw.lastSuccessfulOps) - 1; i >= 0; i-- {
-			originalOp := mw.lastSuccessfulOps[i]
+		for i := len(mw.lastSuccessfulResults) - 1; i >= 0; i-- {
+			result := mw.lastSuccessfulResults[i]
 			inverseOps = append(inverseOps, app.FileOperation{
-				From: originalOp.To,   // Swap From
-				To:   originalOp.From, // Swap To
+				From: result.Operation.To,   // Swap From
+				To:   result.Operation.From, // Swap To
 			})
 		}
 
@@ -344,7 +344,7 @@ func (mw *MainWindow) displayExecutionResult(result app.ExecutionResult, isRollb
 	basePath := mw.dirEntry.Text
 
 	if !isRollback {
-		mw.lastSuccessfulOps = []app.FileOperation{}
+		mw.lastSuccessfulResults = []app.OperationResult{}
 	}
 
 	title := "Execution Results"
@@ -358,7 +358,7 @@ func (mw *MainWindow) displayExecutionResult(result app.ExecutionResult, isRollb
 		if opResult.Success {
 			resultsText.WriteString(fmt.Sprintf("✓ [SUCCESS] %s → %s\n", fromRel, toRel))
 			if !isRollback {
-				mw.lastSuccessfulOps = append(mw.lastSuccessfulOps, opResult.Operation)
+				mw.lastSuccessfulResults = append(mw.lastSuccessfulResults, opResult)
 			}
 		} else {
 			resultsText.WriteString(fmt.Sprintf("✗ [FAILED] %s → %s\n  Error: %v\n", fromRel, toRel, opResult.Error))
@@ -391,7 +391,7 @@ func (mw *MainWindow) displayExecutionResult(result app.ExecutionResult, isRollb
 	newContent := fmt.Sprintf("=== %s ===\n%s", title, resultsText.String())
 	mw.setOutputText(newContent)
 
-	if !isRollback && len(mw.lastSuccessfulOps) > 0 {
+	if !isRollback && len(mw.lastSuccessfulResults) > 0 {
 		mw.rollbackBtn.Show()
 	} else if isRollback && result.FailCount == 0 {
 		// If rollback finished successfully, we return to the "Ready to Execute" state

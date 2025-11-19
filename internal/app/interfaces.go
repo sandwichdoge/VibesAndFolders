@@ -29,7 +29,8 @@ type ExecutionResult struct {
 }
 
 type OperationResult struct {
-	Operation FileOperation
-	Success   bool
-	Error     error
+	Operation     FileOperation
+	Success       bool
+	Error         error
+	SymlinkTarget string // Stores the symlink target for rollback purposes (empty for non-symlinks)
 }

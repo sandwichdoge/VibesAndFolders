@@ -161,6 +161,76 @@ func (fs *DefaultFileService) ExecuteOperation(op FileOperation) OperationResult
 		return result
 	}
 
+	// Check if source is a symlink using Lstat (doesn't follow symlinks)
+	fileInfo, err := os.Lstat(op.From)
+	if err != nil {
+		result.Error = fmt.Errorf("failed to stat source: %v", err)
+		return result
+	}
+
+	// Handle symlinks specially
+	if fileInfo.Mode()&os.ModeSymlink != 0 {
+		// Read the symlink target
+		linkTarget, err := os.Readlink(op.From)
+		if err != nil {
+			result.Error = fmt.Errorf("failed to read symlink: %v", err)
+			return result
+		}
+
+		// Store original symlink target for rollback
+		result.SymlinkTarget = linkTarget
+
+		// Determine the target path to use at the new location
+		newTarget := linkTarget
+
+		// If the target is relative, we need to adjust it for the new location
+		if !filepath.IsAbs(linkTarget) {
+			// Resolve the absolute path of what the symlink currently points to
+			symlinkDir := filepath.Dir(op.From)
+			absoluteTarget := filepath.Join(symlinkDir, linkTarget)
+			absoluteTarget = filepath.Clean(absoluteTarget)
+
+			// Calculate the new relative path from the destination
+			newSymlinkDir := filepath.Dir(op.To)
+			newRelTarget, err := filepath.Rel(newSymlinkDir, absoluteTarget)
+			if err != nil {
+				// If we can't create a relative path, fall back to absolute
+				newTarget = absoluteTarget
+				fs.logger.Debug("Converting symlink to absolute path: %s", absoluteTarget)
+			} else {
+				newTarget = newRelTarget
+				fs.logger.Debug("Adjusted relative symlink path: %s -> %s", linkTarget, newTarget)
+			}
+		}
+
+		// Remove the old symlink
+		if err := os.Remove(op.From); err != nil {
+			result.Error = fmt.Errorf("failed to remove original symlink: %v", err)
+			return result
+		}
+
+		// Create the new symlink at destination with the adjusted target
+		if err := os.Symlink(newTarget, op.To); err != nil {
+			// Try to restore original symlink on failure
+			restoreErr := os.Symlink(linkTarget, op.From)
+			if restoreErr != nil {
+				result.Error = fmt.Errorf("failed to create new symlink and restore original: %v (restore error: %v)", err, restoreErr)
+			} else {
+				result.Error = fmt.Errorf("failed to create new symlink: %v", err)
+			}
+			return result
+		}
+
+		result.Success = true
+		if newTarget != linkTarget {
+			fs.logger.Debug("Successfully moved symlink with adjusted target: %s -> %s (original target: %s, new target: %s)", op.From, op.To, linkTarget, newTarget)
+		} else {
+			fs.logger.Debug("Successfully moved symlink: %s -> %s (target: %s)", op.From, op.To, linkTarget)
+		}
+		return result
+	}
+
+	// For regular files and directories, use os.Rename
 	if err := os.Rename(op.From, op.To); err != nil {
 		result.Error = err
 		return result
