@@ -203,9 +203,15 @@ Output Format Rules:
 3. "to": destination path relative to base.
 4. Only output files that need moving/renaming.
 
+Example:
+{"from": "IMG_1234.jpg", "to": "photos/vacation/IMG_1234.jpg"}
+{"from": "document.pdf", "to": "documents/renamed_document.pdf"}
+{"from": "old_folder/file.txt", "to": "new_folder/file.txt"}
+
 Organization Principles:
 5. When creating folders, use consistent naming that matches existing patterns in the directory.
-6. Preserve existing well-organized structures. Skip reorganizing what's already logically arranged.
+6. Preserve existing well-organized structures. Avoid reorganizing what's already logically arranged.
+7. May rename files in required.
 `
 }
 
