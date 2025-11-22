@@ -197,6 +197,30 @@ func (o *Orchestrator) GetDirectoryStructure(path string, maxDepth int) (string,
 	return o.fileService.GetDirectoryStructure(path, maxDepth)
 }
 
+// GetDirectoryIndexStats returns statistics about indexed files in a directory
+func (o *Orchestrator) GetDirectoryIndexStats(dirPath string) (map[string]int, error) {
+	if o.indexOrchestrator == nil {
+		return map[string]int{"total": 0}, nil
+	}
+	return o.indexOrchestrator.GetDirectoryIndexStats(dirPath)
+}
+
+// ScanDirectoryChanges scans for changes in a directory
+func (o *Orchestrator) ScanDirectoryChanges(dirPath string) (*DirectoryChanges, error) {
+	if o.indexService == nil {
+		return nil, fmt.Errorf("index service not available")
+	}
+	return o.indexService.ScanDirectoryChanges(dirPath)
+}
+
+// IndexDirectory indexes all files in a directory
+func (o *Orchestrator) IndexDirectory(dirPath string, onProgress func(current, total int, fileName string)) error {
+	if o.indexOrchestrator == nil {
+		return fmt.Errorf("index orchestrator not available")
+	}
+	return o.indexOrchestrator.IndexDirectory(dirPath, onProgress)
+}
+
 // enrichStructureWithDescriptions adds AI-generated descriptions to the directory structure
 func (o *Orchestrator) enrichStructureWithDescriptions(dirPath, structure string) (string, error) {
 	// Get all indexed files in this directory

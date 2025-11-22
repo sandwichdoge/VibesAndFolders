@@ -28,12 +28,16 @@ type MainWindow struct {
 	orchestrator *app.Orchestrator
 	config       *app.Config
 	logger       *app.Logger
+	httpClient   *app.HTTPClient
 
 	dirEntry          *widget.Entry
 	promptEntry       *widget.Entry
 	depthSelect       *widget.Select
 	cleanCheck        *widget.Check
 	deepAnalysisCheck *widget.Check
+	indexStatusLabel  *widget.Label
+	viewIndexBtn      *widget.Button
+	indexDetailsBox   *fyne.Container
 	outputText        *widget.Entry
 	statusLabel       *widget.Label
 	progressBar       *widget.ProgressBarInfinite
@@ -46,13 +50,14 @@ type MainWindow struct {
 	lastSuccessfulResults []app.OperationResult
 }
 
-func NewMainWindow(fyneApp fyne.App, orchestrator *app.Orchestrator, config *app.Config, logger *app.Logger) *MainWindow {
+func NewMainWindow(fyneApp fyne.App, orchestrator *app.Orchestrator, config *app.Config, logger *app.Logger, httpClient *app.HTTPClient) *MainWindow {
 	mw := &MainWindow{
 		app:          fyneApp,
 		window:       fyneApp.NewWindow("VibesAndFolders - AI-Powered File Organizer"),
 		orchestrator: orchestrator,
 		config:       config,
 		logger:       logger,
+		httpClient:   httpClient,
 	}
 
 	mw.initializeComponents()
@@ -65,6 +70,12 @@ func NewMainWindow(fyneApp fyne.App, orchestrator *app.Orchestrator, config *app
 func (mw *MainWindow) initializeComponents() {
 	mw.dirEntry = widget.NewEntry()
 	mw.dirEntry.SetPlaceHolder("Enter directory path (e.g., /home/user/Documents)")
+	mw.dirEntry.OnChanged = func(string) {
+		// Update index status when directory changes
+		if mw.config.EnableDeepAnalysis {
+			go mw.updateIndexStatus()
+		}
+	}
 
 	mw.promptEntry = widget.NewMultiLineEntry()
 	mw.promptEntry.SetPlaceHolder("Enter your organization instructions (e.g., 'Organize by file type into folders')")
@@ -79,9 +90,23 @@ func (mw *MainWindow) initializeComponents() {
 	mw.cleanCheck = widget.NewCheck("Clean-up empty directories after execution", func(bool) {})
 	mw.cleanCheck.SetChecked(true)
 
-	mw.deepAnalysisCheck = widget.NewCheck("Enable deep analysis (requires a multimodal LLM)", func(checked bool) {
+	// Index status components - initialize BEFORE deepAnalysisCheck
+	mw.indexStatusLabel = widget.NewLabel("Index Status: Not checked")
+
+	mw.viewIndexBtn = widget.NewButton("View Index Details", mw.onViewIndexDetails)
+
+	// Container for index details (collapsible)
+	mw.indexDetailsBox = container.NewVBox(
+		mw.indexStatusLabel,
+		mw.viewIndexBtn,
+	)
+	mw.indexDetailsBox.Hidden = !mw.config.EnableDeepAnalysis
+
+	// Now create the checkbox with the callback that uses indexDetailsBox
+	mw.deepAnalysisCheck = widget.NewCheck("Enable Deep Analysis", func(checked bool) {
 		mw.config.EnableDeepAnalysis = checked
 		app.SaveConfig(mw.app, mw.config, mw.logger)
+		mw.updateIndexDetailsVisibility()
 	})
 	mw.deepAnalysisCheck.SetChecked(mw.config.EnableDeepAnalysis)
 
@@ -116,6 +141,10 @@ func (mw *MainWindow) setupLayout() {
 				return
 			}
 			mw.dirEntry.SetText(uri.Path())
+			// Update index status when directory is selected via browse
+			if mw.config.EnableDeepAnalysis {
+				go mw.updateIndexStatus()
+			}
 		}, mw.window)
 	})
 
@@ -128,6 +157,7 @@ func (mw *MainWindow) setupLayout() {
 		),
 		mw.cleanCheck,
 		mw.deepAnalysisCheck,
+		mw.indexDetailsBox,
 	)
 
 	topInputs := container.NewVBox(
@@ -164,7 +194,7 @@ func (mw *MainWindow) setupLayout() {
 func (mw *MainWindow) setupMenu() {
 	settingsMenu := fyne.NewMenu("Settings",
 		fyne.NewMenuItem("Configure...", func() {
-			configWindow := NewConfigWindow(mw.app, mw.config, mw.logger)
+			configWindow := NewConfigWindow(mw.app, mw.config, mw.logger, mw.httpClient)
 			configWindow.Show(nil, nil)
 		}),
 	)
@@ -280,6 +310,11 @@ func (mw *MainWindow) onAnalyze() {
 		fyne.Do(func() {
 			mw.progressBar.Hide()
 			mw.analyzeBtn.Enable()
+
+			// Update index status after analysis
+			if mw.config.EnableDeepAnalysis {
+				mw.updateIndexStatus()
+			}
 
 			if result.Error != nil {
 				dialog.ShowError(result.Error, mw.window)
@@ -464,6 +499,72 @@ func (mw *MainWindow) displayExecutionResult(result app.ExecutionResult, isRollb
 		}
 		dialog.ShowInformation(msgTitle, "All operations processed successfully!\n"+verificationMsg, mw.window)
 	}
+}
+
+func (mw *MainWindow) updateIndexDetailsVisibility() {
+	mw.indexDetailsBox.Hidden = !mw.config.EnableDeepAnalysis
+	mw.indexDetailsBox.Refresh()
+}
+
+func (mw *MainWindow) updateIndexStatus() {
+	if mw.dirEntry.Text == "" || mw.orchestrator == nil {
+		fyne.Do(func() {
+			mw.indexStatusLabel.SetText("Index Status: Select a directory first")
+		})
+		return
+	}
+
+	// Get index statistics for the current directory
+	stats, err := mw.orchestrator.GetDirectoryIndexStats(mw.dirEntry.Text)
+	if err != nil {
+		fyne.Do(func() {
+			mw.indexStatusLabel.SetText("Index Status: Unable to check")
+		})
+		mw.logger.Debug("Failed to get index stats: %v", err)
+		return
+	}
+
+	totalIndexed := stats["total"]
+	if totalIndexed == 0 {
+		fyne.Do(func() {
+			mw.indexStatusLabel.SetText("Index Status: No files indexed yet")
+		})
+	} else {
+		fyne.Do(func() {
+			mw.indexStatusLabel.SetText(fmt.Sprintf("Index Status: %d files indexed", totalIndexed))
+		})
+	}
+}
+
+func (mw *MainWindow) onViewIndexDetails() {
+	if mw.dirEntry.Text == "" {
+		dialog.ShowError(app.ErrEmptyDirectory, mw.window)
+		return
+	}
+
+	if mw.orchestrator == nil {
+		dialog.ShowError(fmt.Errorf("orchestrator not initialized"), mw.window)
+		return
+	}
+
+	stats, err := mw.orchestrator.GetDirectoryIndexStats(mw.dirEntry.Text)
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("failed to get index statistics: %w", err), mw.window)
+		return
+	}
+
+	var detailsText strings.Builder
+	detailsText.WriteString(fmt.Sprintf("Path: %s\n\n", mw.dirEntry.Text))
+	detailsText.WriteString(fmt.Sprintf("Total files indexed: %d\n\n", stats["total"]))
+	detailsText.WriteString("Breakdown by file type:\n")
+
+	for fileType, count := range stats {
+		if fileType != "total" {
+			detailsText.WriteString(fmt.Sprintf("  %s: %d\n", fileType, count))
+		}
+	}
+
+	dialog.ShowInformation("Index Details", detailsText.String(), mw.window)
 }
 
 func (mw *MainWindow) Show() {

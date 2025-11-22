@@ -46,10 +46,10 @@ func main() {
 
 	orchestrator := app.NewOrchestrator(aiService, fileService, validator, logger, indexOrchestrator, indexService)
 
-	mainWindow := ui.NewMainWindow(myApp, orchestrator, config, logger)
+	mainWindow := ui.NewMainWindow(myApp, orchestrator, config, logger, httpClient)
 
 	if config.APIKey == app.DefaultAPIKey || config.Endpoint == "" {
-		configWindow := ui.NewConfigWindow(myApp, config, logger)
+		configWindow := ui.NewConfigWindow(myApp, config, logger, httpClient)
 		configWindow.Show(
 			func() {
 				mainWindow.Show()
