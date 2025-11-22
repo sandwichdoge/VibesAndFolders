@@ -26,7 +26,7 @@ func NewConfigWindow(fyneApp fyne.App, config *app.Config, logger *app.Logger) *
 
 func (cw *ConfigWindow) Show(onFirstRunSubmit func(), onFirstRunCancel func()) {
 	configWin := cw.app.NewWindow("Configuration")
-	configWin.Resize(fyne.NewSize(600, 200))
+	configWin.Resize(fyne.NewSize(600, 250))
 
 	endpointEntry := widget.NewEntry()
 	endpointEntry.SetText(cw.config.Endpoint)
@@ -40,11 +40,16 @@ func (cw *ConfigWindow) Show(onFirstRunSubmit func(), onFirstRunCancel func()) {
 	modelEntry.SetText(cw.config.Model)
 	modelEntry.SetPlaceHolder("gpt-4o")
 
+	dbPathEntry := widget.NewEntry()
+	dbPathEntry.SetText(cw.config.IndexDBPath)
+	dbPathEntry.SetPlaceHolder("Path to index database (optional)")
+
 	form := &widget.Form{
 		Items: []*widget.FormItem{
 			{Text: "Endpoint", Widget: endpointEntry},
 			{Text: "API Key", Widget: apiKeyEntry},
 			{Text: "Model", Widget: modelEntry},
+			{Text: "Index DB Path", Widget: dbPathEntry},
 		},
 		OnSubmit: func() {
 			if strings.TrimSpace(endpointEntry.Text) == "" {
@@ -55,6 +60,7 @@ func (cw *ConfigWindow) Show(onFirstRunSubmit func(), onFirstRunCancel func()) {
 			cw.config.Endpoint = endpointEntry.Text
 			cw.config.APIKey = apiKeyEntry.Text
 			cw.config.Model = modelEntry.Text
+			cw.config.IndexDBPath = dbPathEntry.Text
 			app.SaveConfig(cw.app, cw.config, cw.logger)
 
 			dialog.ShowInformation("Saved", "Configuration has been saved.", configWin)

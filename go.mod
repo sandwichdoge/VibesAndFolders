@@ -2,7 +2,10 @@ module io.github.sandwichdoge.vibesandfolders
 
 go 1.23.4
 
-require fyne.io/fyne/v2 v2.7.1
+require (
+	fyne.io/fyne/v2 v2.7.1
+	github.com/mattn/go-sqlite3 v1.14.32
+)
 
 require (
 	fyne.io/systray v1.11.1-0.20250603113521-ca66a66d8b58 // indirect

@@ -18,9 +18,11 @@ const (
 )
 
 type Config struct {
-	Endpoint string `json:"endpoint"`
-	APIKey   string `json:"api_key"`
-	Model    string `json:"model"`
+	Endpoint          string `json:"endpoint"`
+	APIKey            string `json:"api_key"`
+	Model             string `json:"model"`
+	EnableDeepAnalysis bool   `json:"enable_deep_analysis"`
+	IndexDBPath       string `json:"index_db_path"`
 }
 
 // LoadConfig loads configuration from app storage
@@ -111,4 +113,6 @@ func loadDefaults(config *Config) {
 	config.Endpoint = defaultEndpoint
 	config.APIKey = DefaultAPIKey
 	config.Model = defaultModel
+	config.EnableDeepAnalysis = false
+	config.IndexDBPath = "" // Will be set to app storage path at runtime
 }

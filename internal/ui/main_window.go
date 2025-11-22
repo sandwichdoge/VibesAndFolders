@@ -29,16 +29,17 @@ type MainWindow struct {
 	config       *app.Config
 	logger       *app.Logger
 
-	dirEntry    *widget.Entry
-	promptEntry *widget.Entry
-	depthSelect *widget.Select
-	cleanCheck  *widget.Check
-	outputText  *widget.Entry
-	statusLabel *widget.Label
-	progressBar *widget.ProgressBarInfinite
-	executeBtn  *widget.Button
-	analyzeBtn  *widget.Button
-	rollbackBtn *widget.Button
+	dirEntry         *widget.Entry
+	promptEntry      *widget.Entry
+	depthSelect      *widget.Select
+	cleanCheck       *widget.Check
+	deepAnalysisCheck *widget.Check
+	outputText       *widget.Entry
+	statusLabel      *widget.Label
+	progressBar      *widget.ProgressBarInfinite
+	executeBtn       *widget.Button
+	analyzeBtn       *widget.Button
+	rollbackBtn      *widget.Button
 
 	lastOutputContent    string
 	currentOperations    []app.FileOperation
@@ -78,6 +79,12 @@ func (mw *MainWindow) initializeComponents() {
 	mw.cleanCheck = widget.NewCheck("Clean-up empty directories after execution", func(bool) {})
 	mw.cleanCheck.SetChecked(true)
 
+	mw.deepAnalysisCheck = widget.NewCheck("Enable deep analysis (index files with AI)", func(checked bool) {
+		mw.config.EnableDeepAnalysis = checked
+		app.SaveConfig(mw.app, mw.config, mw.logger)
+	})
+	mw.deepAnalysisCheck.SetChecked(mw.config.EnableDeepAnalysis)
+
 	mw.outputText = widget.NewMultiLineEntry()
 	mw.outputText.SetPlaceHolder("Directory structure and AI suggestions will appear here...")
 	mw.outputText.Wrapping = fyne.TextWrapWord
@@ -114,11 +121,13 @@ func (mw *MainWindow) setupLayout() {
 
 	dirInputRow := container.NewBorder(nil, nil, nil, browseBtn, mw.dirEntry)
 
-	scanOptions := container.NewHBox(
-		widget.NewLabel("Scan Depth:"),
-		mw.depthSelect,
-		widget.NewLabel("    "),
+	scanOptions := container.NewVBox(
+		container.NewHBox(
+			widget.NewLabel("Scan Depth:"),
+			mw.depthSelect,
+		),
 		mw.cleanCheck,
+		mw.deepAnalysisCheck,
 	)
 
 	topInputs := container.NewVBox(
@@ -231,9 +240,10 @@ func (mw *MainWindow) onAnalyze() {
 
 	go func() {
 		req := app.AnalysisRequest{
-			DirectoryPath: dirPath,
-			UserPrompt:    userPrompt,
-			MaxDepth:      maxDepth,
+			DirectoryPath:      dirPath,
+			UserPrompt:         userPrompt,
+			MaxDepth:           maxDepth,
+			EnableDeepAnalysis: mw.config.EnableDeepAnalysis,
 		}
 
 		// 1. Get Structure first (fast)

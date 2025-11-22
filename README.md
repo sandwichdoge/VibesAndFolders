@@ -4,7 +4,7 @@ VibesAndFolders is a desktop tool that uses AI to organize your files based on p
 
 For safety, it can only move or rename a file/folder, never delete. It will never create a new file, only folders.
 
-All decisions are entirely based on filenames, it does not read the file content.
+By default, all decisions are entirely based on filenames, it does not read the file content. However, you can enable **Deep Analysis** mode to leverage multimodal AI to analyze text and image files for smarter organization.
 
 <img width="1030" height="901" alt="image" src="https://github.com/user-attachments/assets/206efee7-5dcf-4184-8778-3ed904a3abdd" />
 
@@ -18,6 +18,24 @@ All decisions are entirely based on filenames, it does not read the file content
 - If the preview looks correct, click Execute to apply the changes.
 
 **Downloads (Mac, Windows, Linux):** https://github.com/sandwichdoge/vibesandfolders/releases/
+
+### Deep Analysis Feature:
+
+The Deep Analysis feature uses multimodal AI to intelligently index and analyze your files:
+
+**What it does:**
+- Indexes files in a SQLite database with AI-generated descriptions
+- Analyzes text files (code, documents, markdown, etc.) to understand their content
+- Analyzes images using vision AI to describe what they contain
+- **Sends file descriptions to the AI** when organizing - the AI sees content summaries, not just filenames
+- Tracks file changes using last-modified timestamps for efficient change detection
+- Updates the index after file operations (move/rename) and rollbacks
+- Skips analysis of large files (>50KB for text, >5MB for images)
+
+**Performance:**
+- Only new or modified files are analyzed (uses file modification time for change detection)
+- Large files are skipped to avoid processing overhead
+- Index is stored locally in SQLite for fast access
 
 ### How to build and run from source:
 ```
