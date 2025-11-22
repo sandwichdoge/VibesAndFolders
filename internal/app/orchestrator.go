@@ -7,22 +7,22 @@ import (
 )
 
 type Orchestrator struct {
-	aiService           AIService
-	fileService         FileService
-	validator           *Validator
-	logger              *Logger
-	deepAnalysisService *DeepAnalysisService
-	indexService        IndexService
+	aiService            AIService
+	fileService          FileService
+	validator            *Validator
+	logger               *Logger
+	indexOrchestrator    *IndexDirectoryOrchestrator
+	indexService         IndexService
 }
 
-func NewOrchestrator(aiService AIService, fileService FileService, validator *Validator, logger *Logger, deepAnalysisService *DeepAnalysisService, indexService IndexService) *Orchestrator {
+func NewOrchestrator(aiService AIService, fileService FileService, validator *Validator, logger *Logger, indexOrchestrator *IndexDirectoryOrchestrator, indexService IndexService) *Orchestrator {
 	return &Orchestrator{
-		aiService:           aiService,
-		fileService:         fileService,
-		validator:           validator,
-		logger:              logger,
-		deepAnalysisService: deepAnalysisService,
-		indexService:        indexService,
+		aiService:         aiService,
+		fileService:       fileService,
+		validator:         validator,
+		logger:            logger,
+		indexOrchestrator: indexOrchestrator,
+		indexService:      indexService,
 	}
 }
 
@@ -50,7 +50,7 @@ func (o *Orchestrator) ExecuteOrganization(req ExecutionRequest) ExecutionResult
 
 	// Create index snapshot before execution if deep analysis is enabled
 	var indexSnapshot *IndexSnapshot
-	if o.deepAnalysisService != nil && o.indexService != nil {
+	if o.indexOrchestrator != nil && o.indexService != nil {
 		o.logger.Debug("Creating index snapshot before execution")
 		snapshot, err := o.indexService.CreateSnapshot(req.Operations)
 		if err != nil {
@@ -69,7 +69,7 @@ func (o *Orchestrator) ExecuteOrganization(req ExecutionRequest) ExecutionResult
 	}
 
 	// Smartly update the index after execution (if deep analysis is enabled and there were successful operations)
-	if result.SuccessCount > 0 && o.deepAnalysisService != nil && o.indexService != nil {
+	if result.SuccessCount > 0 && o.indexOrchestrator != nil && o.indexService != nil {
 		o.logger.Info("Updating index after execution")
 
 		// Start a transaction for atomic index updates
@@ -84,7 +84,7 @@ func (o *Orchestrator) ExecuteOrganization(req ExecutionRequest) ExecutionResult
 				}
 			}
 
-			if err := o.deepAnalysisService.UpdateIndexAfterOperations(successfulOps); err != nil {
+			if err := o.indexOrchestrator.UpdateIndexAfterOperations(successfulOps); err != nil {
 				o.logger.Error("Failed to update index after execution: %v", err)
 				// Rollback the transaction
 				if rbErr := o.indexService.RollbackTransaction(); rbErr != nil {
@@ -125,7 +125,7 @@ func (o *Orchestrator) AnalyzeDirectory(req AnalysisRequest, onOperation Operati
 	}
 
 	// Index the directory before analysis if deep analysis is enabled and there are files to index
-	if req.EnableDeepAnalysis && o.deepAnalysisService != nil && o.indexService != nil {
+	if req.EnableDeepAnalysis && o.indexOrchestrator != nil && o.indexService != nil {
 		o.logger.Info("Checking if directory needs indexing: %s", req.DirectoryPath)
 
 		// First, clean up any orphaned entries from previous operations
@@ -143,7 +143,7 @@ func (o *Orchestrator) AnalyzeDirectory(req AnalysisRequest, onOperation Operati
 			totalToIndex := len(changes.NewFiles) + len(changes.ModifiedFiles)
 			if totalToIndex > 0 {
 				o.logger.Info("Found %d files to index, starting indexing...", totalToIndex)
-				if err := o.deepAnalysisService.IndexDirectory(req.DirectoryPath, func(current, total int, fileName string) {
+				if err := o.indexOrchestrator.IndexDirectory(req.DirectoryPath, func(current, total int, fileName string) {
 					o.logger.Debug("Indexing file %d/%d: %s", current, total, fileName)
 				}); err != nil {
 					o.logger.Error("Failed to index directory: %v", err)
@@ -165,7 +165,7 @@ func (o *Orchestrator) AnalyzeDirectory(req AnalysisRequest, onOperation Operati
 
 	// Enrich structure with descriptions from index if deep analysis is enabled
 	enrichedStructure := structure
-	if req.EnableDeepAnalysis && o.deepAnalysisService != nil && o.indexService != nil {
+	if req.EnableDeepAnalysis && o.indexOrchestrator != nil && o.indexService != nil {
 		enrichedStructure, err = o.enrichStructureWithDescriptions(req.DirectoryPath, structure)
 		if err != nil {
 			o.logger.Error("Failed to enrich structure with descriptions: %v", err)

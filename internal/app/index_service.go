@@ -557,23 +557,224 @@ func (is *DefaultIndexService) RemoveOrphanedEntries(dirPath string) (int, error
 	return removed, nil
 }
 
-// DetermineFileType determines the type of file based on extension
-func DetermineFileType(filePath string) string {
-	ext := filepath.Ext(filePath)
-	switch ext {
-	case ".txt", ".md", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf":
-		return "text"
-	case ".go", ".py", ".js", ".ts", ".java", ".c", ".cpp", ".h", ".hpp", ".rs", ".rb", ".php", ".sh", ".bash":
-		return "text"
-	case ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".ico":
-		return "image"
-	case ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm":
-		return "video"
-	case ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a":
-		return "audio"
-	case ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx":
-		return "document"
-	default:
-		return "other"
+// IndexDirectoryOrchestrator handles high-level indexing orchestration
+type IndexDirectoryOrchestrator struct {
+	indexService IndexService
+	analyzer     FileAnalyzer
+	logger       *Logger
+}
+
+// FileAnalyzer defines the interface for analyzing files
+type FileAnalyzer interface {
+	AnalyzeFile(filePath string) (string, error)
+}
+
+func NewIndexDirectoryOrchestrator(indexService IndexService, analyzer FileAnalyzer, logger *Logger) *IndexDirectoryOrchestrator {
+	return &IndexDirectoryOrchestrator{
+		indexService: indexService,
+		analyzer:     analyzer,
+		logger:       logger,
 	}
 }
+
+// IndexDirectory scans and indexes all files in a directory
+func (ido *IndexDirectoryOrchestrator) IndexDirectory(dirPath string, onProgress func(current, total int, fileName string)) error {
+	// First, scan for changes
+	changes, err := ido.indexService.ScanDirectoryChanges(dirPath)
+	if err != nil {
+		return fmt.Errorf("failed to scan directory changes: %w", err)
+	}
+
+	// Calculate total files to process
+	totalFiles := len(changes.NewFiles) + len(changes.ModifiedFiles)
+	if totalFiles == 0 {
+		ido.logger.Info("No files need indexing in %s", dirPath)
+		return nil
+	}
+
+	ido.logger.Info("Indexing directory: %s (%d new, %d modified, %d deleted)",
+		dirPath, len(changes.NewFiles), len(changes.ModifiedFiles), len(changes.DeletedFiles))
+
+	currentFile := 0
+
+	// Process new files
+	for _, filePath := range changes.NewFiles {
+		currentFile++
+		if onProgress != nil {
+			onProgress(currentFile, totalFiles, filePath)
+		}
+
+		if err := ido.indexFile(filePath); err != nil {
+			ido.logger.Error("Failed to index new file %s: %v", filePath, err)
+		}
+	}
+
+	// Process modified files
+	for _, filePath := range changes.ModifiedFiles {
+		currentFile++
+		if onProgress != nil {
+			onProgress(currentFile, totalFiles, filePath)
+		}
+
+		if err := ido.indexFile(filePath); err != nil {
+			ido.logger.Error("Failed to reindex modified file %s: %v", filePath, err)
+		}
+	}
+
+	// Remove deleted files from index
+	for _, filePath := range changes.DeletedFiles {
+		if err := ido.indexService.RemoveFile(filePath); err != nil {
+			ido.logger.Error("Failed to remove deleted file from index %s: %v", filePath, err)
+		}
+	}
+
+	ido.logger.Info("Directory indexing complete for %s", dirPath)
+	return nil
+}
+
+// indexFile indexes a single file
+func (ido *IndexDirectoryOrchestrator) indexFile(filePath string) error {
+	// Get file info
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return err
+	}
+
+	// Determine file type (imported from deep_analysis_service)
+	fileType := DetermineFileType(filePath)
+
+	// Analyze file to get description
+	description, err := ido.analyzer.AnalyzeFile(filePath)
+	if err != nil {
+		ido.logger.Debug("Failed to analyze file %s, using basic description: %v", filePath, err)
+		description = fmt.Sprintf("%s file", fileType)
+	}
+
+	// Store in index with modification time
+	if err := ido.indexService.IndexFile(filePath, description, fileType, info.Size(), info.ModTime()); err != nil {
+		return fmt.Errorf("failed to store file in index: %w", err)
+	}
+
+	ido.logger.Debug("Indexed: %s - %s", filePath, description)
+	return nil
+}
+
+// UpdateIndexAfterOperations updates the index smartly after file operations
+// It only updates paths for known files and indexes new files
+// Returns an error if any critical index operation fails
+func (ido *IndexDirectoryOrchestrator) UpdateIndexAfterOperations(operations []FileOperation) error {
+	var errors []error
+
+	for _, op := range operations {
+		// Check if the old path was indexed
+		indexed, err := ido.indexService.IsFileIndexed(op.From)
+		if err != nil {
+			ido.logger.Debug("Error checking if file is indexed %s: %v", op.From, err)
+			errors = append(errors, fmt.Errorf("failed to check if %s is indexed: %w", op.From, err))
+			continue
+		}
+
+		if indexed {
+			// File was already indexed, just update the path
+			if err := ido.indexService.UpdateFilePath(op.From, op.To); err != nil {
+				ido.logger.Error("Failed to update file path in index %s -> %s: %v", op.From, op.To, err)
+				errors = append(errors, fmt.Errorf("failed to update path %s -> %s: %w", op.From, op.To, err))
+			} else {
+				ido.logger.Debug("Updated index path: %s -> %s", op.From, op.To)
+			}
+		} else {
+			// File wasn't indexed before, index it now at the new location
+			if err := ido.indexFile(op.To); err != nil {
+				ido.logger.Error("Failed to index new file %s: %v", op.To, err)
+				errors = append(errors, fmt.Errorf("failed to index new file %s: %w", op.To, err))
+			} else {
+				ido.logger.Debug("Indexed new file: %s", op.To)
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		// Return a combined error message
+		return fmt.Errorf("index update had %d errors: first error: %w", len(errors), errors[0])
+	}
+	return nil
+}
+
+// GetDirectoryIndexStats returns statistics about indexed files in a directory
+func (ido *IndexDirectoryOrchestrator) GetDirectoryIndexStats(dirPath string) (map[string]int, error) {
+	indexedFiles, err := ido.indexService.GetIndexedFilesInDirectory(dirPath)
+	if err != nil {
+		return nil, err
+	}
+
+	stats := make(map[string]int)
+	stats["total"] = len(indexedFiles)
+
+	for _, file := range indexedFiles {
+		stats[file.FileType]++
+	}
+
+	return stats, nil
+}
+
+// RepairIndexResult contains the results of an index repair operation
+type RepairIndexResult struct {
+	OrphanedRemoved  int
+	MissingReindexed int
+	StaleUpdated     int
+	Errors           []string
+}
+
+// RepairIndex performs a comprehensive index repair for a directory
+// It removes orphaned entries, reindexes missing files, and updates stale entries
+func (ido *IndexDirectoryOrchestrator) RepairIndex(dirPath string) (*RepairIndexResult, error) {
+	result := &RepairIndexResult{
+		Errors: make([]string, 0),
+	}
+
+	ido.logger.Info("Starting index repair for %s", dirPath)
+
+	// Step 1: Remove orphaned entries
+	removed, err := ido.indexService.RemoveOrphanedEntries(dirPath)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("Failed to remove orphaned entries: %v", err))
+	} else {
+		result.OrphanedRemoved = removed
+		ido.logger.Info("Removed %d orphaned entries", removed)
+	}
+
+	// Step 2: Scan for changes and reindex
+	changes, err := ido.indexService.ScanDirectoryChanges(dirPath)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("Failed to scan directory changes: %v", err))
+		return result, fmt.Errorf("failed to scan directory changes: %w", err)
+	}
+
+	// Reindex new files
+	for _, filePath := range changes.NewFiles {
+		if err := ido.indexFile(filePath); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Failed to index %s: %v", filePath, err))
+		} else {
+			result.MissingReindexed++
+		}
+	}
+
+	// Update modified files
+	for _, filePath := range changes.ModifiedFiles {
+		if err := ido.indexFile(filePath); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Failed to reindex %s: %v", filePath, err))
+		} else {
+			result.StaleUpdated++
+		}
+	}
+
+	ido.logger.Info("Index repair complete: %d orphaned removed, %d missing reindexed, %d stale updated, %d errors",
+		result.OrphanedRemoved, result.MissingReindexed, result.StaleUpdated, len(result.Errors))
+
+	if len(result.Errors) > 0 {
+		return result, fmt.Errorf("index repair completed with %d errors", len(result.Errors))
+	}
+
+	return result, nil
+}
+

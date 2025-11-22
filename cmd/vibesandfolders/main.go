@@ -35,13 +35,16 @@ func main() {
 		indexService = nil
 	}
 
-	// Initialize DeepAnalysisService
+	// Initialize DeepAnalysisService (for file analysis)
 	var deepAnalysisService *app.DeepAnalysisService
+	var indexOrchestrator *app.IndexDirectoryOrchestrator
 	if indexService != nil {
 		deepAnalysisService = app.NewDeepAnalysisService(config, httpClient, indexService, logger)
+		// Initialize IndexDirectoryOrchestrator for orchestrating indexing operations
+		indexOrchestrator = app.NewIndexDirectoryOrchestrator(indexService, deepAnalysisService, logger)
 	}
 
-	orchestrator := app.NewOrchestrator(aiService, fileService, validator, logger, deepAnalysisService, indexService)
+	orchestrator := app.NewOrchestrator(aiService, fileService, validator, logger, indexOrchestrator, indexService)
 
 	mainWindow := ui.NewMainWindow(myApp, orchestrator, config, logger)
 
