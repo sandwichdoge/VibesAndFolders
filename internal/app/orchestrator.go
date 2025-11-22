@@ -47,6 +47,20 @@ type ExecutionRequest struct {
 
 func (o *Orchestrator) ExecuteOrganization(req ExecutionRequest) ExecutionResult {
 	o.logger.Info("Starting execution of %d operations", len(req.Operations))
+
+	// Create index snapshot before execution if deep analysis is enabled
+	var indexSnapshot *IndexSnapshot
+	if o.deepAnalysisService != nil && o.indexService != nil {
+		o.logger.Debug("Creating index snapshot before execution")
+		snapshot, err := o.indexService.CreateSnapshot(req.Operations)
+		if err != nil {
+			o.logger.Error("Failed to create index snapshot: %v", err)
+		} else {
+			indexSnapshot = snapshot
+			o.logger.Debug("Index snapshot created with %d entries", len(snapshot.Entries))
+		}
+	}
+
 	result, err := o.fileService.ExecuteOperations(req.Operations, req.BasePath, req.CleanEmpty)
 	if err != nil {
 		o.logger.Error("Execution failed: %v", err)
@@ -57,18 +71,40 @@ func (o *Orchestrator) ExecuteOrganization(req ExecutionRequest) ExecutionResult
 	// Smartly update the index after execution (if deep analysis is enabled and there were successful operations)
 	if result.SuccessCount > 0 && o.deepAnalysisService != nil && o.indexService != nil {
 		o.logger.Info("Updating index after execution")
-		// Extract only successful operations
-		var successfulOps []FileOperation
-		for _, opResult := range result.Operations {
-			if opResult.Success {
-				successfulOps = append(successfulOps, opResult.Operation)
-			}
-		}
 
-		if err := o.deepAnalysisService.UpdateIndexAfterOperations(successfulOps); err != nil {
-			o.logger.Error("Failed to update index after execution: %v", err)
+		// Start a transaction for atomic index updates
+		if err := o.indexService.BeginTransaction(); err != nil {
+			o.logger.Error("Failed to begin index transaction: %v", err)
 		} else {
-			o.logger.Info("Index update complete")
+			// Extract only successful operations
+			var successfulOps []FileOperation
+			for _, opResult := range result.Operations {
+				if opResult.Success {
+					successfulOps = append(successfulOps, opResult.Operation)
+				}
+			}
+
+			if err := o.deepAnalysisService.UpdateIndexAfterOperations(successfulOps); err != nil {
+				o.logger.Error("Failed to update index after execution: %v", err)
+				// Rollback the transaction
+				if rbErr := o.indexService.RollbackTransaction(); rbErr != nil {
+					o.logger.Error("Failed to rollback index transaction: %v", rbErr)
+				}
+				// Restore from snapshot if available
+				if indexSnapshot != nil {
+					o.logger.Info("Restoring index from snapshot due to update failure")
+					if restoreErr := o.indexService.RestoreSnapshot(indexSnapshot); restoreErr != nil {
+						o.logger.Error("Failed to restore index snapshot: %v", restoreErr)
+					}
+				}
+			} else {
+				// Commit the transaction
+				if commitErr := o.indexService.CommitTransaction(); commitErr != nil {
+					o.logger.Error("Failed to commit index transaction: %v", commitErr)
+				} else {
+					o.logger.Info("Index update complete")
+				}
+			}
 		}
 	}
 
@@ -91,6 +127,15 @@ func (o *Orchestrator) AnalyzeDirectory(req AnalysisRequest, onOperation Operati
 	// Index the directory before analysis if deep analysis is enabled and there are files to index
 	if req.EnableDeepAnalysis && o.deepAnalysisService != nil && o.indexService != nil {
 		o.logger.Info("Checking if directory needs indexing: %s", req.DirectoryPath)
+
+		// First, clean up any orphaned entries from previous operations
+		removed, err := o.indexService.RemoveOrphanedEntries(req.DirectoryPath)
+		if err != nil {
+			o.logger.Error("Failed to remove orphaned entries: %v", err)
+		} else if removed > 0 {
+			o.logger.Info("Cleaned up %d orphaned index entries", removed)
+		}
+
 		changes, err := o.indexService.ScanDirectoryChanges(req.DirectoryPath)
 		if err != nil {
 			o.logger.Error("Failed to scan directory changes: %v", err)

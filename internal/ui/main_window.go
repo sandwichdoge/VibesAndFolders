@@ -29,20 +29,20 @@ type MainWindow struct {
 	config       *app.Config
 	logger       *app.Logger
 
-	dirEntry         *widget.Entry
-	promptEntry      *widget.Entry
-	depthSelect      *widget.Select
-	cleanCheck       *widget.Check
+	dirEntry          *widget.Entry
+	promptEntry       *widget.Entry
+	depthSelect       *widget.Select
+	cleanCheck        *widget.Check
 	deepAnalysisCheck *widget.Check
-	outputText       *widget.Entry
-	statusLabel      *widget.Label
-	progressBar      *widget.ProgressBarInfinite
-	executeBtn       *widget.Button
-	analyzeBtn       *widget.Button
-	rollbackBtn      *widget.Button
+	outputText        *widget.Entry
+	statusLabel       *widget.Label
+	progressBar       *widget.ProgressBarInfinite
+	executeBtn        *widget.Button
+	analyzeBtn        *widget.Button
+	rollbackBtn       *widget.Button
 
-	lastOutputContent    string
-	currentOperations    []app.FileOperation
+	lastOutputContent     string
+	currentOperations     []app.FileOperation
 	lastSuccessfulResults []app.OperationResult
 }
 
@@ -79,7 +79,7 @@ func (mw *MainWindow) initializeComponents() {
 	mw.cleanCheck = widget.NewCheck("Clean-up empty directories after execution", func(bool) {})
 	mw.cleanCheck.SetChecked(true)
 
-	mw.deepAnalysisCheck = widget.NewCheck("Enable deep analysis (index files with AI)", func(checked bool) {
+	mw.deepAnalysisCheck = widget.NewCheck("Enable deep analysis (requires a multimodal LLM)", func(checked bool) {
 		mw.config.EnableDeepAnalysis = checked
 		app.SaveConfig(mw.app, mw.config, mw.logger)
 	})

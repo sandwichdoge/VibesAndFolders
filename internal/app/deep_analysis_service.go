@@ -119,7 +119,7 @@ func (das *DeepAnalysisService) analyzeGenericFile(filePath string) (string, err
 
 // analyzeContentWithLLM sends text content to LLM for analysis
 func (das *DeepAnalysisService) analyzeContentWithLLM(content, contentType, fileName string) (string, error) {
-	systemPrompt := `You are a file analysis assistant. Analyze the provided file content and provide a concise, description (max 100 lines) that captures the main purpose or content of the file. Be specific and informative.`
+	systemPrompt := `You are a file analysis assistant. Analyze the provided file content and provide a concise, description (max 3 sentences) that captures the main purpose or content of the file. Be specific and informative.`
 
 	userPrompt := fmt.Sprintf("File name: %s\nContent type: %s\n\nContent:\n%s\n\nProvide a brief description:", fileName, contentType, das.truncateContent(content, 2000))
 
@@ -309,12 +309,16 @@ func (das *DeepAnalysisService) indexFile(filePath string) error {
 
 // UpdateIndexAfterOperations updates the index smartly after file operations
 // It only updates paths for known files and indexes new files
+// Returns an error if any critical index operation fails
 func (das *DeepAnalysisService) UpdateIndexAfterOperations(operations []FileOperation) error {
+	var errors []error
+
 	for _, op := range operations {
 		// Check if the old path was indexed
 		indexed, err := das.indexService.IsFileIndexed(op.From)
 		if err != nil {
 			das.logger.Debug("Error checking if file is indexed %s: %v", op.From, err)
+			errors = append(errors, fmt.Errorf("failed to check if %s is indexed: %w", op.From, err))
 			continue
 		}
 
@@ -322,6 +326,7 @@ func (das *DeepAnalysisService) UpdateIndexAfterOperations(operations []FileOper
 			// File was already indexed, just update the path
 			if err := das.indexService.UpdateFilePath(op.From, op.To); err != nil {
 				das.logger.Error("Failed to update file path in index %s -> %s: %v", op.From, op.To, err)
+				errors = append(errors, fmt.Errorf("failed to update path %s -> %s: %w", op.From, op.To, err))
 			} else {
 				das.logger.Debug("Updated index path: %s -> %s", op.From, op.To)
 			}
@@ -329,10 +334,16 @@ func (das *DeepAnalysisService) UpdateIndexAfterOperations(operations []FileOper
 			// File wasn't indexed before, index it now at the new location
 			if err := das.indexFile(op.To); err != nil {
 				das.logger.Error("Failed to index new file %s: %v", op.To, err)
+				errors = append(errors, fmt.Errorf("failed to index new file %s: %w", op.To, err))
 			} else {
 				das.logger.Debug("Indexed new file: %s", op.To)
 			}
 		}
+	}
+
+	if len(errors) > 0 {
+		// Return a combined error message
+		return fmt.Errorf("index update had %d errors: first error: %w", len(errors), errors[0])
 	}
 	return nil
 }
@@ -379,4 +390,65 @@ func (das *DeepAnalysisService) GetDirectoryIndexStats(dirPath string) (map[stri
 	}
 
 	return stats, nil
+}
+
+// RepairIndexResult contains the results of an index repair operation
+type RepairIndexResult struct {
+	OrphanedRemoved   int
+	MissingReindexed  int
+	StaleUpdated      int
+	Errors            []string
+}
+
+// RepairIndex performs a comprehensive index repair for a directory
+// It removes orphaned entries, reindexes missing files, and updates stale entries
+func (das *DeepAnalysisService) RepairIndex(dirPath string) (*RepairIndexResult, error) {
+	result := &RepairIndexResult{
+		Errors: make([]string, 0),
+	}
+
+	das.logger.Info("Starting index repair for %s", dirPath)
+
+	// Step 1: Remove orphaned entries
+	removed, err := das.indexService.RemoveOrphanedEntries(dirPath)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("Failed to remove orphaned entries: %v", err))
+	} else {
+		result.OrphanedRemoved = removed
+		das.logger.Info("Removed %d orphaned entries", removed)
+	}
+
+	// Step 2: Scan for changes and reindex
+	changes, err := das.indexService.ScanDirectoryChanges(dirPath)
+	if err != nil {
+		result.Errors = append(result.Errors, fmt.Sprintf("Failed to scan directory changes: %v", err))
+		return result, fmt.Errorf("failed to scan directory changes: %w", err)
+	}
+
+	// Reindex new files
+	for _, filePath := range changes.NewFiles {
+		if err := das.indexFile(filePath); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Failed to index %s: %v", filePath, err))
+		} else {
+			result.MissingReindexed++
+		}
+	}
+
+	// Update modified files
+	for _, filePath := range changes.ModifiedFiles {
+		if err := das.indexFile(filePath); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Failed to reindex %s: %v", filePath, err))
+		} else {
+			result.StaleUpdated++
+		}
+	}
+
+	das.logger.Info("Index repair complete: %d orphaned removed, %d missing reindexed, %d stale updated, %d errors",
+		result.OrphanedRemoved, result.MissingReindexed, result.StaleUpdated, len(result.Errors))
+
+	if len(result.Errors) > 0 {
+		return result, fmt.Errorf("index repair completed with %d errors", len(result.Errors))
+	}
+
+	return result, nil
 }
