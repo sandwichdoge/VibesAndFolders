@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -94,7 +95,7 @@ func (mw *MainWindow) initializeComponents() {
 	mw.executeBtn = widget.NewButton("✓ Execute These Operations", mw.onExecute)
 	mw.executeBtn.Hide()
 
-	mw.rollbackBtn = widget.NewButton("⟲ Undo Changes (Rollback)", mw.onRollback)
+	mw.rollbackBtn = widget.NewButton("↶ Undo Changes (Rollback)", mw.onRollback)
 	mw.rollbackBtn.Importance = widget.DangerImportance
 	mw.rollbackBtn.Hide()
 
@@ -331,6 +332,43 @@ func (mw *MainWindow) onRollback() {
 		}
 
 		result := mw.orchestrator.ExecuteOrganization(req)
+
+		// Clean up directories that were created during the original execution
+		// We iterate in reverse order to remove deepest directories first
+		dirsToRemove := make(map[string]bool)
+		for i := len(mw.lastSuccessfulResults) - 1; i >= 0; i-- {
+			opResult := mw.lastSuccessfulResults[i]
+			for _, dir := range opResult.CreatedDirs {
+				dirsToRemove[dir] = true
+			}
+		}
+
+		// Convert map to slice and sort by depth (deepest first)
+		var dirList []string
+		for dir := range dirsToRemove {
+			dirList = append(dirList, dir)
+		}
+		// Sort by path length descending to remove deepest directories first
+		for i := 0; i < len(dirList); i++ {
+			for j := i + 1; j < len(dirList); j++ {
+				if len(dirList[j]) > len(dirList[i]) {
+					dirList[i], dirList[j] = dirList[j], dirList[i]
+				}
+			}
+		}
+
+		// Remove the directories
+		removedCount := 0
+		for _, dir := range dirList {
+			if err := os.Remove(dir); err == nil {
+				removedCount++
+				mw.logger.Debug("Removed directory during rollback: %s", dir)
+			}
+		}
+
+		if removedCount > 0 {
+			result.CleanedDirs = removedCount
+		}
 
 		fyne.Do(func() {
 			mw.progressBar.Hide()

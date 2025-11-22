@@ -32,5 +32,6 @@ type OperationResult struct {
 	Operation     FileOperation
 	Success       bool
 	Error         error
-	SymlinkTarget string // Stores the symlink target for rollback purposes (empty for non-symlinks)
+	SymlinkTarget string   // Stores the symlink target for rollback purposes (empty for non-symlinks)
+	CreatedDirs   []string // Tracks directories created during this operation for rollback cleanup
 }

@@ -156,10 +156,34 @@ func (fs *DefaultFileService) ExecuteOperation(op FileOperation) OperationResult
 	}
 
 	destDir := filepath.Dir(op.To)
+
+	// Track which directories we create
+	var createdDirs []string
+
+	// Check which directories need to be created
+	currentPath := destDir
+	for currentPath != "" && currentPath != "." && currentPath != "/" {
+		if _, err := os.Stat(currentPath); os.IsNotExist(err) {
+			// This directory doesn't exist, mark it for tracking
+			createdDirs = append([]string{currentPath}, createdDirs...) // prepend to maintain order
+		} else {
+			// Directory exists, no need to check parent
+			break
+		}
+		currentPath = filepath.Dir(currentPath)
+		if currentPath == filepath.Dir(currentPath) {
+			// Reached root
+			break
+		}
+	}
+
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		result.Error = fmt.Errorf("%w: %v", ErrCannotCreateDir, err)
 		return result
 	}
+
+	// Store the created directories in the result
+	result.CreatedDirs = createdDirs
 
 	// Check if source is a symlink using Lstat (doesn't follow symlinks)
 	fileInfo, err := os.Lstat(op.From)
