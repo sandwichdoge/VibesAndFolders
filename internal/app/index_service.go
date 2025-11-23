@@ -54,7 +54,7 @@ type IndexService interface {
 	GetIndexedFilesInDirectory(dirPath string) ([]IndexedFile, error)
 
 	// Scan directory and identify changes
-	ScanDirectoryChanges(dirPath string) (*DirectoryChanges, error)
+	ScanDirectoryChanges(dirPath string, maxDepth int) (*DirectoryChanges, error)
 
 	// Transaction support for atomic operations
 	BeginTransaction() error
@@ -68,6 +68,9 @@ type IndexService interface {
 	// Validate and clean orphaned entries
 	ValidateIndex() ([]string, error)
 	RemoveOrphanedEntries(dirPath string) (int, error)
+
+	// Delete all indexed files in a directory
+	DeleteDirectoryIndex(dirPath string) (int, error)
 }
 
 // DirectoryChanges tracks what has changed in a directory
@@ -325,7 +328,7 @@ func (is *DefaultIndexService) GetIndexedFilesInDirectory(dirPath string) ([]Ind
 	return files, rows.Err()
 }
 
-func (is *DefaultIndexService) ScanDirectoryChanges(dirPath string) (*DirectoryChanges, error) {
+func (is *DefaultIndexService) ScanDirectoryChanges(dirPath string, maxDepth int) (*DirectoryChanges, error) {
 	changes := &DirectoryChanges{
 		NewFiles:      make([]string, 0),
 		DeletedFiles:  make([]string, 0),
@@ -345,11 +348,24 @@ func (is *DefaultIndexService) ScanDirectoryChanges(dirPath string) (*DirectoryC
 		indexedMap[file.FilePath] = file
 	}
 
-	// Walk the directory to find current files
+	// Walk the directory to find current files (respecting maxDepth)
 	currentFiles := make(map[string]bool)
+	baseDepth := strings.Count(filepath.Clean(dirPath), string(filepath.Separator))
+
 	err = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+
+		// Calculate current depth relative to base directory
+		currentDepth := strings.Count(filepath.Clean(path), string(filepath.Separator)) - baseDepth
+
+		// Skip if we've exceeded maxDepth (0 means unlimited)
+		if maxDepth > 0 && currentDepth > maxDepth {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 
 		// Skip directories
@@ -384,10 +400,16 @@ func (is *DefaultIndexService) ScanDirectoryChanges(dirPath string) (*DirectoryC
 		return nil, err
 	}
 
-	// Check for deleted files
+	// Check for deleted files (only consider files within the current scan depth)
 	for path := range indexedMap {
-		if !currentFiles[path] {
-			changes.DeletedFiles = append(changes.DeletedFiles, path)
+		// Calculate depth of indexed file
+		indexedDepth := strings.Count(filepath.Clean(path), string(filepath.Separator)) - baseDepth
+
+		// Only check for deletion if file is within scan depth
+		if maxDepth == 0 || indexedDepth <= maxDepth {
+			if !currentFiles[path] {
+				changes.DeletedFiles = append(changes.DeletedFiles, path)
+			}
 		}
 	}
 
@@ -557,6 +579,29 @@ func (is *DefaultIndexService) RemoveOrphanedEntries(dirPath string) (int, error
 	return removed, nil
 }
 
+// DeleteDirectoryIndex deletes all indexed files under a directory
+func (is *DefaultIndexService) DeleteDirectoryIndex(dirPath string) (int, error) {
+	// Use LIKE to match all files under the directory
+	pattern := filepath.Clean(dirPath)
+	if !strings.HasSuffix(pattern, string(filepath.Separator)) {
+		pattern += string(filepath.Separator)
+	}
+	pattern += "%"
+
+	result, err := is.db.Exec("DELETE FROM indexed_files WHERE file_path LIKE ? OR file_path = ?", pattern, filepath.Clean(dirPath))
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete index entries: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	is.logger.Info("Deleted %d index entries from %s", rowsAffected, dirPath)
+	return int(rowsAffected), nil
+}
+
 // IndexDirectoryOrchestrator handles high-level indexing orchestration
 type IndexDirectoryOrchestrator struct {
 	indexService IndexService
@@ -578,9 +623,9 @@ func NewIndexDirectoryOrchestrator(indexService IndexService, analyzer FileAnaly
 }
 
 // IndexDirectory scans and indexes all files in a directory
-func (ido *IndexDirectoryOrchestrator) IndexDirectory(dirPath string, onProgress func(current, total int, fileName string)) error {
+func (ido *IndexDirectoryOrchestrator) IndexDirectory(dirPath string, maxDepth int, onProgress func(current, total int, fileName string)) error {
 	// First, scan for changes
-	changes, err := ido.indexService.ScanDirectoryChanges(dirPath)
+	changes, err := ido.indexService.ScanDirectoryChanges(dirPath, maxDepth)
 	if err != nil {
 		return fmt.Errorf("failed to scan directory changes: %w", err)
 	}
@@ -727,7 +772,7 @@ type RepairIndexResult struct {
 
 // RepairIndex performs a comprehensive index repair for a directory
 // It removes orphaned entries, reindexes missing files, and updates stale entries
-func (ido *IndexDirectoryOrchestrator) RepairIndex(dirPath string) (*RepairIndexResult, error) {
+func (ido *IndexDirectoryOrchestrator) RepairIndex(dirPath string, maxDepth int) (*RepairIndexResult, error) {
 	result := &RepairIndexResult{
 		Errors: make([]string, 0),
 	}
@@ -744,7 +789,7 @@ func (ido *IndexDirectoryOrchestrator) RepairIndex(dirPath string) (*RepairIndex
 	}
 
 	// Step 2: Scan for changes and reindex
-	changes, err := ido.indexService.ScanDirectoryChanges(dirPath)
+	changes, err := ido.indexService.ScanDirectoryChanges(dirPath, maxDepth)
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("Failed to scan directory changes: %v", err))
 		return result, fmt.Errorf("failed to scan directory changes: %w", err)

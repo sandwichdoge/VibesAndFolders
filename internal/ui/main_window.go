@@ -37,6 +37,7 @@ type MainWindow struct {
 	deepAnalysisCheck *widget.Check
 	indexStatusLabel  *widget.Label
 	viewIndexBtn      *widget.Button
+	deleteIndexBtn    *widget.Button
 	indexDetailsBox   *fyne.Container
 	outputText        *widget.Entry
 	statusLabel       *widget.Label
@@ -71,7 +72,6 @@ func (mw *MainWindow) initializeComponents() {
 	mw.dirEntry = widget.NewEntry()
 	mw.dirEntry.SetPlaceHolder("Enter directory path (e.g., /home/user/Documents)")
 	mw.dirEntry.OnChanged = func(string) {
-		// Update index status when directory changes
 		if mw.config.EnableDeepAnalysis {
 			go mw.updateIndexStatus()
 		}
@@ -81,29 +81,27 @@ func (mw *MainWindow) initializeComponents() {
 	mw.promptEntry.SetPlaceHolder("Enter your organization instructions (e.g., 'Organize by file type into folders')")
 	mw.promptEntry.SetMinRowsVisible(promptTextRows)
 
-	mw.depthSelect = widget.NewSelect(
-		[]string{"Unlimited", "1 (Root Only)", "2", "3", "4", "5"},
-		func(s string) {},
-	)
+	mw.depthSelect = widget.NewSelect([]string{"Unlimited", "1 (Root Only)", "2", "3", "4", "5"}, func(string) {
+		if mw.config.EnableDeepAnalysis {
+			go mw.updateIndexStatus()
+		}
+	})
 	mw.depthSelect.SetSelected("1 (Root Only)")
 
-	mw.cleanCheck = widget.NewCheck("Clean-up empty directories after execution", func(bool) {})
+	mw.cleanCheck = widget.NewCheck("Clean-up empty directories after execution", nil)
 	mw.cleanCheck.SetChecked(true)
 
-	// Index status components - initialize BEFORE deepAnalysisCheck
-	mw.indexStatusLabel = widget.NewLabel("Index Status: Not checked")
+	mw.indexStatusLabel = widget.NewLabel("Index: Not checked")
+	mw.viewIndexBtn = widget.NewButton("View Details", mw.onViewIndexDetails)
+	mw.deleteIndexBtn = widget.NewButton("Delete Index", mw.onDeleteIndex)
 
-	mw.viewIndexBtn = widget.NewButton("View Index Details", mw.onViewIndexDetails)
-
-	// Container for index details (collapsible)
 	mw.indexDetailsBox = container.NewVBox(
 		mw.indexStatusLabel,
-		mw.viewIndexBtn,
+		container.NewHBox(mw.viewIndexBtn, mw.deleteIndexBtn),
 	)
 	mw.indexDetailsBox.Hidden = !mw.config.EnableDeepAnalysis
 
-	// Now create the checkbox with the callback that uses indexDetailsBox
-	mw.deepAnalysisCheck = widget.NewCheck("Enable Deep Analysis", func(checked bool) {
+	mw.deepAnalysisCheck = widget.NewCheck("Enable Deep Analysis (PDF/Image/Audio indexing)", func(checked bool) {
 		mw.config.EnableDeepAnalysis = checked
 		app.SaveConfig(mw.app, mw.config, mw.logger)
 		mw.updateIndexDetailsVisibility()
@@ -141,31 +139,23 @@ func (mw *MainWindow) setupLayout() {
 				return
 			}
 			mw.dirEntry.SetText(uri.Path())
-			// Update index status when directory is selected via browse
 			if mw.config.EnableDeepAnalysis {
 				go mw.updateIndexStatus()
 			}
 		}, mw.window)
 	})
 
-	dirInputRow := container.NewBorder(nil, nil, nil, browseBtn, mw.dirEntry)
-
-	scanOptions := container.NewVBox(
-		container.NewHBox(
-			widget.NewLabel("Scan Depth:"),
-			mw.depthSelect,
-		),
-		mw.cleanCheck,
-		mw.deepAnalysisCheck,
-		mw.indexDetailsBox,
-	)
-
 	topInputs := container.NewVBox(
 		widget.NewLabel("Directory Path:"),
-		dirInputRow,
+		container.NewBorder(nil, nil, nil, browseBtn, mw.dirEntry),
 		widget.NewLabel("What to do with this directory:"),
 		mw.promptEntry,
-		scanOptions,
+		container.NewVBox(
+			container.NewHBox(widget.NewLabel("Scan Depth:"), mw.depthSelect),
+			mw.cleanCheck,
+			mw.deepAnalysisCheck,
+			mw.indexDetailsBox,
+		),
 		mw.analyzeBtn,
 		widget.NewSeparator(),
 		widget.NewLabel("Output:"),
@@ -178,16 +168,9 @@ func (mw *MainWindow) setupLayout() {
 		mw.rollbackBtn,
 	)
 
-	content := container.NewBorder(
-		topInputs,
-		bottomStatus,
-		nil,
-		nil,
-		mw.outputText,
-	)
-
-	paddedContent := container.NewPadded(content)
-	mw.window.SetContent(paddedContent)
+	mw.window.SetContent(container.NewPadded(
+		container.NewBorder(topInputs, bottomStatus, nil, nil, mw.outputText),
+	))
 	mw.window.Resize(fyne.NewSize(defaultWindowWidth, defaultWindowHeight))
 }
 
@@ -259,13 +242,9 @@ func (mw *MainWindow) onAnalyze() {
 	mw.analyzeBtn.Disable()
 	mw.executeBtn.Hide()
 	mw.rollbackBtn.Hide()
-	mw.statusLabel.SetText("Streaming analysis...")
+	mw.statusLabel.SetText("Analyzing directory...")
 
-	// Initialize output with structure
-	// We will append operations to this
 	mw.setOutputText("")
-
-	// We need a thread-safe buffer for the UI text to avoid flickering
 	var outputBuffer strings.Builder
 
 	go func() {
@@ -276,42 +255,37 @@ func (mw *MainWindow) onAnalyze() {
 			EnableDeepAnalysis: mw.config.EnableDeepAnalysis,
 		}
 
-		// 1. Get Structure first (fast)
 		structure, _ := mw.orchestrator.GetDirectoryStructure(dirPath, maxDepth)
-
 		fyne.Do(func() {
 			outputBuffer.WriteString(fmt.Sprintf("Directory Structure:\n%s\n\n=== AI Suggested Operations ===\n", structure))
 			mw.setOutputText(outputBuffer.String())
-			mw.statusLabel.SetText(fmt.Sprintf("Thinking via %s...", mw.config.Model))
+			mw.statusLabel.SetText(fmt.Sprintf("Analyzing with %s...", mw.config.Model))
 		})
 
-		// 2. Define the callback
 		opCount := 0
 		onOperation := func(op app.FileOperation) {
-			// This runs in the background thread, need fyne.Do for UI
 			fyne.Do(func() {
 				opCount++
 				fromRel := mw.getRelativePath(mw.dirEntry.Text, op.From)
 				toRel := mw.getRelativePath(mw.dirEntry.Text, op.To)
-
-				line := fmt.Sprintf("%s → %s\n", fromRel, toRel)
-
-				// Append to buffer and update UI
-				outputBuffer.WriteString(line)
+				outputBuffer.WriteString(fmt.Sprintf("%s → %s\n", fromRel, toRel))
 				mw.setOutputText(outputBuffer.String())
-
 				mw.statusLabel.SetText(fmt.Sprintf("Found %d operations...", opCount))
 			})
 		}
 
-		// 3. Call Orchestrator with callback
+		if mw.config.EnableDeepAnalysis && mw.orchestrator != nil {
+			fyne.Do(func() {
+				mw.indexStatusLabel.SetText("Index: Building index (analyzing file contents)...")
+			})
+		}
+
 		result := mw.orchestrator.AnalyzeDirectory(req, onOperation)
 
 		fyne.Do(func() {
 			mw.progressBar.Hide()
 			mw.analyzeBtn.Enable()
 
-			// Update index status after analysis
 			if mw.config.EnableDeepAnalysis {
 				mw.updateIndexStatus()
 			}
@@ -336,20 +310,15 @@ func (mw *MainWindow) onAnalyze() {
 
 func (mw *MainWindow) onExecute() {
 	mw.executeBtn.Hide()
-	mw.rollbackBtn.Hide() // Hide during execution
+	mw.rollbackBtn.Hide()
 
 	go func() {
-		req := app.ExecutionRequest{
+		result := mw.orchestrator.ExecuteOrganization(app.ExecutionRequest{
 			Operations: mw.currentOperations,
 			BasePath:   mw.dirEntry.Text,
 			CleanEmpty: mw.cleanCheck.Checked,
-		}
-
-		result := mw.orchestrator.ExecuteOrganization(req)
-
-		fyne.Do(func() {
-			mw.displayExecutionResult(result, false)
 		})
+		fyne.Do(func() { mw.displayExecutionResult(result, false) })
 	}()
 }
 
@@ -359,41 +328,32 @@ func (mw *MainWindow) onRollback() {
 	mw.statusLabel.SetText("Rolling back changes...")
 
 	go func() {
-		// Create inverse operations
-		// We must iterate backwards to handle chained moves correctly (A->B, B->C reversed is C->B, B->A)
 		var inverseOps []app.FileOperation
 		for i := len(mw.lastSuccessfulResults) - 1; i >= 0; i-- {
 			result := mw.lastSuccessfulResults[i]
 			inverseOps = append(inverseOps, app.FileOperation{
-				From: result.Operation.To,   // Swap From
-				To:   result.Operation.From, // Swap To
+				From: result.Operation.To,
+				To:   result.Operation.From,
 			})
 		}
 
-		req := app.ExecutionRequest{
+		result := mw.orchestrator.ExecuteOrganization(app.ExecutionRequest{
 			Operations: inverseOps,
 			BasePath:   mw.dirEntry.Text,
-			CleanEmpty: false, // Usually don't want to clean empty dirs during rollback, or make it optional. Safest is false to ensure structure restoration.
-		}
+			CleanEmpty: false,
+		})
 
-		result := mw.orchestrator.ExecuteOrganization(req)
-
-		// Clean up directories that were created during the original execution
-		// We iterate in reverse order to remove deepest directories first
 		dirsToRemove := make(map[string]bool)
 		for i := len(mw.lastSuccessfulResults) - 1; i >= 0; i-- {
-			opResult := mw.lastSuccessfulResults[i]
-			for _, dir := range opResult.CreatedDirs {
+			for _, dir := range mw.lastSuccessfulResults[i].CreatedDirs {
 				dirsToRemove[dir] = true
 			}
 		}
 
-		// Convert map to slice and sort by depth (deepest first)
 		var dirList []string
 		for dir := range dirsToRemove {
 			dirList = append(dirList, dir)
 		}
-		// Sort by path length descending to remove deepest directories first
 		for i := 0; i < len(dirList); i++ {
 			for j := i + 1; j < len(dirList); j++ {
 				if len(dirList[j]) > len(dirList[i]) {
@@ -402,7 +362,6 @@ func (mw *MainWindow) onRollback() {
 			}
 		}
 
-		// Remove the directories
 		removedCount := 0
 		for _, dir := range dirList {
 			if err := os.Remove(dir); err == nil {
@@ -417,7 +376,7 @@ func (mw *MainWindow) onRollback() {
 
 		fyne.Do(func() {
 			mw.progressBar.Hide()
-			mw.displayExecutionResult(result, true) // Pass flag indicating this IS a rollback
+			mw.displayExecutionResult(result, true)
 		})
 	}()
 }
@@ -430,10 +389,7 @@ func (mw *MainWindow) displayExecutionResult(result app.ExecutionResult, isRollb
 		mw.lastSuccessfulResults = []app.OperationResult{}
 	}
 
-	title := "Execution Results"
-	if isRollback {
-		title = "Rollback Results"
-	}
+	title := map[bool]string{false: "Execution Results", true: "Rollback Results"}[isRollback]
 
 	for _, opResult := range result.Operations {
 		fromRel := mw.getRelativePath(basePath, opResult.Operation.From)
@@ -483,20 +439,14 @@ func (mw *MainWindow) displayExecutionResult(result app.ExecutionResult, isRollb
 	}
 
 	if result.FailCount > 0 || !verificationSuccess {
-		msgTitle := "Execution Warnings"
 		msg := finalStatus + "\n\n" + verificationMsg
 		if result.FailCount > 0 {
 			msg += "\n\nSome operations failed."
 		}
 		msg += "\nCheck the output log for details."
-		dialog.ShowInformation(msgTitle, msg, mw.window)
+		dialog.ShowInformation("Execution Warnings", msg, mw.window)
 	} else {
-		// Only show popup success if it's a fresh execution.
-		// For rollback, the UI update is sufficient usually, or we can show it too.
-		msgTitle := "Success"
-		if isRollback {
-			msgTitle = "Rollback Successful"
-		}
+		msgTitle := map[bool]string{false: "Success", true: "Rollback Successful"}[isRollback]
 		dialog.ShowInformation(msgTitle, "All operations processed successfully!\n"+verificationMsg, mw.window)
 	}
 }
@@ -507,32 +457,35 @@ func (mw *MainWindow) updateIndexDetailsVisibility() {
 }
 
 func (mw *MainWindow) updateIndexStatus() {
+	updateLabel := func(text string) {
+		fyne.Do(func() { mw.indexStatusLabel.SetText(text) })
+	}
+
 	if mw.dirEntry.Text == "" || mw.orchestrator == nil {
-		fyne.Do(func() {
-			mw.indexStatusLabel.SetText("Index Status: Select a directory first")
-		})
+		updateLabel("Index: Select a directory first")
 		return
 	}
 
-	// Get index statistics for the current directory
+	_, err := mw.parseDepth()
+	if err != nil {
+		updateLabel("Index: Invalid depth setting")
+		mw.logger.Debug("Failed to parse depth: %v", err)
+		return
+	}
+
 	stats, err := mw.orchestrator.GetDirectoryIndexStats(mw.dirEntry.Text)
 	if err != nil {
-		fyne.Do(func() {
-			mw.indexStatusLabel.SetText("Index Status: Unable to check")
-		})
+		updateLabel("Index: Unable to check")
 		mw.logger.Debug("Failed to get index stats: %v", err)
 		return
 	}
 
 	totalIndexed := stats["total"]
+
 	if totalIndexed == 0 {
-		fyne.Do(func() {
-			mw.indexStatusLabel.SetText("Index Status: No files indexed yet")
-		})
+		updateLabel("Index: Not indexed yet (will build on first analysis)")
 	} else {
-		fyne.Do(func() {
-			mw.indexStatusLabel.SetText(fmt.Sprintf("Index Status: %d files indexed", totalIndexed))
-		})
+		updateLabel(fmt.Sprintf("Index: %d files indexed", totalIndexed))
 	}
 }
 
@@ -565,6 +518,60 @@ func (mw *MainWindow) onViewIndexDetails() {
 	}
 
 	dialog.ShowInformation("Index Details", detailsText.String(), mw.window)
+}
+
+func (mw *MainWindow) onDeleteIndex() {
+	if mw.dirEntry.Text == "" {
+		dialog.ShowError(app.ErrEmptyDirectory, mw.window)
+		return
+	}
+
+	if mw.orchestrator == nil {
+		dialog.ShowError(fmt.Errorf("orchestrator not initialized"), mw.window)
+		return
+	}
+
+	// Get current stats to show in confirmation dialog
+	stats, err := mw.orchestrator.GetDirectoryIndexStats(mw.dirEntry.Text)
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("failed to get index statistics: %w", err), mw.window)
+		return
+	}
+
+	totalIndexed := stats["total"]
+	if totalIndexed == 0 {
+		dialog.ShowInformation("No Index", "There are no indexed files for this directory.", mw.window)
+		return
+	}
+
+	confirmMsg := fmt.Sprintf("Are you sure you want to delete the index for this directory?\n\nThis will remove %d indexed files from the database.\n\nPath: %s", totalIndexed, mw.dirEntry.Text)
+	dialog.ShowConfirm("Confirm Delete Index", confirmMsg, func(confirmed bool) {
+		if !confirmed {
+			return
+		}
+
+		go func() {
+			fyne.Do(func() {
+				mw.progressBar.Show()
+				mw.statusLabel.SetText("Deleting index...")
+			})
+
+			deleted, err := mw.orchestrator.DeleteDirectoryIndex(mw.dirEntry.Text)
+
+			fyne.Do(func() {
+				mw.progressBar.Hide()
+				if err != nil {
+					dialog.ShowError(fmt.Errorf("failed to delete index: %w", err), mw.window)
+					mw.statusLabel.SetText("Error deleting index")
+					return
+				}
+
+				mw.updateIndexStatus()
+				mw.statusLabel.SetText("Ready")
+				dialog.ShowInformation("Index Deleted", fmt.Sprintf("Successfully deleted %d indexed files.", deleted), mw.window)
+			})
+		}()
+	}, mw.window)
 }
 
 func (mw *MainWindow) Show() {

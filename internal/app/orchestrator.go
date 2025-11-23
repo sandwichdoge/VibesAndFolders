@@ -126,7 +126,7 @@ func (o *Orchestrator) AnalyzeDirectory(req AnalysisRequest, onOperation Operati
 
 	// Index the directory before analysis if deep analysis is enabled and there are files to index
 	if req.EnableDeepAnalysis && o.indexOrchestrator != nil && o.indexService != nil {
-		o.logger.Info("Checking if directory needs indexing: %s", req.DirectoryPath)
+		o.logger.Info("Checking if directory needs indexing: %s (depth: %d)", req.DirectoryPath, req.MaxDepth)
 
 		// First, clean up any orphaned entries from previous operations
 		removed, err := o.indexService.RemoveOrphanedEntries(req.DirectoryPath)
@@ -136,14 +136,14 @@ func (o *Orchestrator) AnalyzeDirectory(req AnalysisRequest, onOperation Operati
 			o.logger.Info("Cleaned up %d orphaned index entries", removed)
 		}
 
-		changes, err := o.indexService.ScanDirectoryChanges(req.DirectoryPath)
+		changes, err := o.indexService.ScanDirectoryChanges(req.DirectoryPath, req.MaxDepth)
 		if err != nil {
 			o.logger.Error("Failed to scan directory changes: %v", err)
 		} else {
 			totalToIndex := len(changes.NewFiles) + len(changes.ModifiedFiles)
 			if totalToIndex > 0 {
 				o.logger.Info("Found %d files to index, starting indexing...", totalToIndex)
-				if err := o.indexOrchestrator.IndexDirectory(req.DirectoryPath, func(current, total int, fileName string) {
+				if err := o.indexOrchestrator.IndexDirectory(req.DirectoryPath, req.MaxDepth, func(current, total int, fileName string) {
 					o.logger.Debug("Indexing file %d/%d: %s", current, total, fileName)
 				}); err != nil {
 					o.logger.Error("Failed to index directory: %v", err)
@@ -206,19 +206,27 @@ func (o *Orchestrator) GetDirectoryIndexStats(dirPath string) (map[string]int, e
 }
 
 // ScanDirectoryChanges scans for changes in a directory
-func (o *Orchestrator) ScanDirectoryChanges(dirPath string) (*DirectoryChanges, error) {
+func (o *Orchestrator) ScanDirectoryChanges(dirPath string, maxDepth int) (*DirectoryChanges, error) {
 	if o.indexService == nil {
 		return nil, fmt.Errorf("index service not available")
 	}
-	return o.indexService.ScanDirectoryChanges(dirPath)
+	return o.indexService.ScanDirectoryChanges(dirPath, maxDepth)
 }
 
 // IndexDirectory indexes all files in a directory
-func (o *Orchestrator) IndexDirectory(dirPath string, onProgress func(current, total int, fileName string)) error {
+func (o *Orchestrator) IndexDirectory(dirPath string, maxDepth int, onProgress func(current, total int, fileName string)) error {
 	if o.indexOrchestrator == nil {
 		return fmt.Errorf("index orchestrator not available")
 	}
-	return o.indexOrchestrator.IndexDirectory(dirPath, onProgress)
+	return o.indexOrchestrator.IndexDirectory(dirPath, maxDepth, onProgress)
+}
+
+// DeleteDirectoryIndex deletes all indexed files for a directory
+func (o *Orchestrator) DeleteDirectoryIndex(dirPath string) (int, error) {
+	if o.indexService == nil {
+		return 0, fmt.Errorf("index service not available")
+	}
+	return o.indexService.DeleteDirectoryIndex(dirPath)
 }
 
 // enrichStructureWithDescriptions adds AI-generated descriptions to the directory structure
