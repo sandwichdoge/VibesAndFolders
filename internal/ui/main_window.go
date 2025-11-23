@@ -35,7 +35,6 @@ type MainWindow struct {
 	depthSelect       *widget.Select
 	cleanCheck        *widget.Check
 	deepAnalysisCheck *widget.Check
-	indexStatusLabel  *widget.Label
 	viewIndexBtn      *widget.Button
 	deleteIndexBtn    *widget.Button
 	indexDetailsBox   *fyne.Container
@@ -72,34 +71,21 @@ func NewMainWindow(fyneApp fyne.App, orchestrator *app.Orchestrator, config *app
 func (mw *MainWindow) initializeComponents() {
 	mw.dirEntry = widget.NewEntry()
 	mw.dirEntry.SetPlaceHolder("Enter directory path (e.g., /home/user/Documents)")
-	mw.dirEntry.OnChanged = func(string) {
-		if mw.config.EnableDeepAnalysis {
-			go mw.updateIndexStatus()
-		}
-	}
 
 	mw.promptEntry = widget.NewMultiLineEntry()
 	mw.promptEntry.SetPlaceHolder("Enter your organization instructions (e.g., 'Organize by file type into folders')")
 	mw.promptEntry.SetMinRowsVisible(promptTextRows)
 
-	mw.depthSelect = widget.NewSelect([]string{"Unlimited", "1 (Root Only)", "2", "3", "4", "5"}, func(string) {
-		if mw.config.EnableDeepAnalysis {
-			go mw.updateIndexStatus()
-		}
-	})
+	mw.depthSelect = widget.NewSelect([]string{"Unlimited", "1 (Root Only)", "2", "3", "4", "5"}, nil)
 	mw.depthSelect.SetSelected("1 (Root Only)")
 
 	mw.cleanCheck = widget.NewCheck("Clean-up empty directories after execution", nil)
 	mw.cleanCheck.SetChecked(true)
 
-	mw.indexStatusLabel = widget.NewLabel("Index: Not checked")
-	mw.viewIndexBtn = widget.NewButton("View Details", mw.onViewIndexDetails)
-	mw.deleteIndexBtn = widget.NewButton("Delete Index", mw.onDeleteIndex)
+	mw.viewIndexBtn = widget.NewButton("View Index", mw.onViewIndexDetails)
+	mw.deleteIndexBtn = widget.NewButton("Clear Index", mw.onDeleteIndex)
 
-	mw.indexDetailsBox = container.NewVBox(
-		mw.indexStatusLabel,
-		container.NewHBox(mw.viewIndexBtn, mw.deleteIndexBtn),
-	)
+	mw.indexDetailsBox = container.NewHBox(mw.viewIndexBtn, mw.deleteIndexBtn)
 	mw.indexDetailsBox.Hidden = !mw.config.EnableDeepAnalysis
 
 	mw.deepAnalysisCheck = widget.NewCheck("Enable Deep Analysis (PDFs, images, docs, sheets, slides content indexing)", func(checked bool) {
@@ -140,9 +126,6 @@ func (mw *MainWindow) setupLayout() {
 				return
 			}
 			mw.dirEntry.SetText(uri.Path())
-			if mw.config.EnableDeepAnalysis {
-				go mw.updateIndexStatus()
-			}
 		}, mw.window)
 	})
 
@@ -283,22 +266,12 @@ func (mw *MainWindow) onAnalyze() {
 			})
 		}
 
-		if mw.config.EnableDeepAnalysis && mw.orchestrator != nil {
-			fyne.Do(func() {
-				mw.indexStatusLabel.SetText("Index: Building index (analyzing file contents)...")
-			})
-		}
-
 		result := mw.orchestrator.AnalyzeDirectory(req, onOperation)
 
 		fyne.Do(func() {
 			mw.progressBar.Hide()
 			mw.analyzeBtn.Enable()
 			mw.refreshBottomStatus()
-
-			if mw.config.EnableDeepAnalysis {
-				mw.updateIndexStatus()
-			}
 
 			if result.Error != nil {
 				dialog.ShowError(result.Error, mw.window)
@@ -472,39 +445,6 @@ func (mw *MainWindow) updateIndexDetailsVisibility() {
 	mw.indexDetailsBox.Refresh()
 }
 
-func (mw *MainWindow) updateIndexStatus() {
-	updateLabel := func(text string) {
-		fyne.Do(func() { mw.indexStatusLabel.SetText(text) })
-	}
-
-	if mw.dirEntry.Text == "" || mw.orchestrator == nil {
-		updateLabel("Index: Select a directory first")
-		return
-	}
-
-	_, err := mw.parseDepth()
-	if err != nil {
-		updateLabel("Index: Invalid depth setting")
-		mw.logger.Debug("Failed to parse depth: %v", err)
-		return
-	}
-
-	stats, err := mw.orchestrator.GetDirectoryIndexStats(mw.dirEntry.Text)
-	if err != nil {
-		updateLabel("Index: Unable to check")
-		mw.logger.Debug("Failed to get index stats: %v", err)
-		return
-	}
-
-	totalIndexed := stats["total"]
-
-	if totalIndexed == 0 {
-		updateLabel("Index: Not indexed yet (will build on first analysis)")
-	} else {
-		updateLabel(fmt.Sprintf("Index: %d files indexed", totalIndexed))
-	}
-}
-
 func (mw *MainWindow) onViewIndexDetails() {
 	if mw.dirEntry.Text == "" {
 		dialog.ShowError(app.ErrEmptyDirectory, mw.window)
@@ -581,7 +521,6 @@ func (mw *MainWindow) onDeleteIndex() {
 					return
 				}
 
-				mw.updateIndexStatus()
 				mw.statusLabel.SetText("Ready")
 				dialog.ShowInformation("Index Deleted", fmt.Sprintf("Successfully deleted %d indexed files.", deleted), mw.window)
 			})
