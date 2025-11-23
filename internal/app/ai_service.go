@@ -64,6 +64,11 @@ func (s *OpenAIService) GetSuggestions(structure, userPrompt, basePath string, o
 		Stream:    true,
 	}
 
+	// Log the final prompt being sent
+	s.logger.Info("Sending prompt to model %s", s.config.Model)
+	s.logger.Debug("System prompt: %s", systemPrompt)
+	s.logger.Debug("User prompt: %s", fullPrompt)
+
 	headers := map[string]string{
 		"Authorization": fmt.Sprintf("Bearer %s", s.config.APIKey),
 		"HTTP-Referer":  "https://github.com/sandwichdoge/vibesandfolders",

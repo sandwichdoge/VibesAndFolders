@@ -56,10 +56,9 @@ build-windows:
 setup: install-tools
 	@echo "---"
 	@echo "✅ Setup Complete: fyne-cross is installed."
-	@echo "💡 NOTE: If 'fyne-cross: command not found' occurs, your Go binary path"
-	@echo "is not in your shell's PATH environment variable."
+	@echo "💡 NOTE: If 'fyne-cross: command not found' occurs, your Go binary path is not in your shell's PATH environment variable."
 	@echo "👉 To fix this PERMANENTLY, add the following line to your ~/.bashrc or ~/.zshrc file:"
-	@echo "export PATH=\$PATH:\$(go env GOPATH)/bin"
+	@echo "export PATH=\$$PATH:\$$(go env GOPATH)/bin"
 	@echo "👉 Then run 'source ~/.bashrc' (or ~/.zshrc) or open a new terminal."
 	@echo "---"
 
