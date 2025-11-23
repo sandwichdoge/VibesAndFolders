@@ -6,7 +6,6 @@ For safety, it can only move or rename a file/folder, never delete. It will neve
 
 By default, all decisions are entirely based on filenames, it does not read the file content. However, you can enable **Deep Analysis** mode to leverage multimodal AI to analyze text and image files for smarter organization.
 
-<img width="1030" height="901" alt="image" src="https://github.com/user-attachments/assets/206efee7-5dcf-4184-8778-3ed904a3abdd" />
 
 ### Basic Usage:
 
@@ -40,6 +39,3 @@ The Deep Analysis feature uses multimodal AI to intelligently index and analyze 
 make setup
 make run
 ```
-
-TODO:
-Custom prompt for deep analysis indexing
