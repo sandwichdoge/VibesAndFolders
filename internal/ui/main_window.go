@@ -515,15 +515,29 @@ func (mw *MainWindow) onDeleteIndex() {
 			fyne.Do(func() {
 				mw.progressBar.Hide()
 				mw.refreshBottomStatus()
-				if err != nil {
-					dialog.ShowError(fmt.Errorf("failed to delete index: %w", err), mw.window)
-					mw.statusLabel.SetText("Error deleting index")
-					return
-				}
-
 				mw.statusLabel.SetText("Ready")
-				dialog.ShowInformation("Index Deleted", fmt.Sprintf("Successfully deleted %d indexed files.", deleted), mw.window)
 			})
+
+			// Show dialog with custom callback to refresh window after close
+			if err != nil {
+				fyne.Do(func() {
+					mw.statusLabel.SetText("Error deleting index")
+					d := dialog.NewError(fmt.Errorf("failed to delete index: %w", err), mw.window)
+					d.SetOnClosed(func() {
+						mw.window.Canvas().Refresh(mw.window.Content())
+					})
+					d.Show()
+				})
+			} else {
+				fyne.Do(func() {
+					d := dialog.NewInformation("Index Deleted", fmt.Sprintf("Successfully deleted %d indexed files.", deleted), mw.window)
+					d.SetOnClosed(func() {
+						// Force full window refresh after dialog closes to prevent coordinate desync
+						mw.window.Canvas().Refresh(mw.window.Content())
+					})
+					d.Show()
+				})
+			}
 		}()
 	}, mw.window)
 }
