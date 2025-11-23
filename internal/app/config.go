@@ -57,8 +57,8 @@ RULES:
 - Be specific and factual (e.g., "photo of a red car on a highway", not "transportation image")
 - If unclear or corrupted, state "Image is unclear or corrupted"
 - Do NOT invent details you cannot see
-- Include the content rating of the image (G, PG, 18+)
-- Maximum 100 characters`
+- Include a content rating of the image (G, PG, R)
+- Output one paragraph only`
 
 	defaultIgnorePatterns = `# Ignore patterns (one per line, similar to .gitignore)
 # Use * for wildcards, ** for recursive matching

@@ -395,7 +395,6 @@ func (das *DeepAnalysisService) analyzePDFFile(filePath string) (string, error) 
 	return description, nil
 }
 
-
 // analyzeGenericFile provides basic file information
 func (das *DeepAnalysisService) analyzeGenericFile(filePath string) (string, error) {
 	info, err := os.Stat(filePath)
@@ -497,7 +496,7 @@ func (das *DeepAnalysisService) analyzeImageWithLLM(base64Image, mimeType, fileN
 				},
 			},
 		},
-		"max_tokens":  100,
+		"max_tokens":  200,
 		"temperature": 0.3, // Lower temperature for more factual responses
 	}
 
