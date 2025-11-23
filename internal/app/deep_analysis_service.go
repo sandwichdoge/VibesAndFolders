@@ -74,7 +74,7 @@ func (das *DeepAnalysisService) analyzeTextFile(filePath string) (string, error)
 
 	// Skip very large text files
 	if info.Size() > maxTextFileSize {
-		return fmt.Sprintf("Large text file (%d bytes)", info.Size()), nil
+		return "", fmt.Errorf("text file too large (%d bytes)", info.Size())
 	}
 
 	content, err := os.ReadFile(filePath)
@@ -86,8 +86,7 @@ func (das *DeepAnalysisService) analyzeTextFile(filePath string) (string, error)
 	description, err := das.analyzeContentWithLLM(string(content), "text", filepath.Base(filePath))
 	if err != nil {
 		das.logger.Debug("Failed to analyze text file %s: %v", filePath, err)
-		// Fallback to basic description
-		return fmt.Sprintf("Text file: %s", filepath.Base(filePath)), nil
+		return "", fmt.Errorf("text analysis failed: %w", err)
 	}
 
 	return description, nil
@@ -102,7 +101,7 @@ func (das *DeepAnalysisService) analyzeImageFile(filePath string) (string, error
 
 	// Skip very large images
 	if info.Size() > maxImageFileSize {
-		return fmt.Sprintf("Large image file (%d bytes)", info.Size()), nil
+		return "", fmt.Errorf("image file too large (%d bytes)", info.Size())
 	}
 
 	// Read and encode image to base64
@@ -120,8 +119,9 @@ func (das *DeepAnalysisService) analyzeImageFile(filePath string) (string, error
 	description, err := das.analyzeImageWithLLM(base64Image, mimeType, filepath.Base(filePath))
 	if err != nil {
 		das.logger.Debug("Failed to analyze image file %s: %v", filePath, err)
-		// Fallback to basic description
-		return fmt.Sprintf("Image file: %s", filepath.Base(filePath)), nil
+		// Return error so the file won't be indexed
+		// This allows it to be re-analyzed when a multimodal model is configured
+		return "", fmt.Errorf("image analysis failed (model may not support vision): %w", err)
 	}
 
 	return description, nil
@@ -136,7 +136,7 @@ func (das *DeepAnalysisService) analyzeDocFile(filePath string) (string, error) 
 
 	// Skip very large Word documents
 	if info.Size() > maxDocFileSize {
-		return fmt.Sprintf("Large Word document (%d bytes)", info.Size()), nil
+		return "", fmt.Errorf("Word document too large (%d bytes)", info.Size())
 	}
 
 	ext := strings.ToLower(filepath.Ext(filePath))
@@ -145,14 +145,14 @@ func (das *DeepAnalysisService) analyzeDocFile(filePath string) (string, error) 
 	// .doc (legacy binary format) requires platform-specific tools
 	if ext == ".doc" {
 		das.logger.Debug("Legacy .doc format not supported, skipping: %s", filePath)
-		return fmt.Sprintf("Word document (legacy .doc format): %s", filepath.Base(filePath)), nil
+		return "", fmt.Errorf("legacy .doc format not supported")
 	}
 
 	// Open .docx file
 	doc, err := docx.ReadDocxFile(filePath)
 	if err != nil {
 		das.logger.Debug("Failed to open Word document %s: %v", filePath, err)
-		return fmt.Sprintf("Word document: %s", filepath.Base(filePath)), nil
+		return "", fmt.Errorf("failed to open Word document: %w", err)
 	}
 	defer doc.Close()
 
@@ -163,15 +163,14 @@ func (das *DeepAnalysisService) analyzeDocFile(filePath string) (string, error) 
 	text := das.extractTextFromDocxXML(xmlContent)
 
 	if text == "" {
-		return fmt.Sprintf("Empty Word document: %s", filepath.Base(filePath)), nil
+		return "", fmt.Errorf("Word document has no extractable text")
 	}
 
 	// Use LLM to analyze the Word document content
 	description, err := das.analyzeContentWithLLM(text, "word", filepath.Base(filePath))
 	if err != nil {
 		das.logger.Debug("Failed to analyze Word document %s: %v", filePath, err)
-		// Fallback to basic description
-		return fmt.Sprintf("Word document: %s", filepath.Base(filePath)), nil
+		return "", fmt.Errorf("Word document analysis failed: %w", err)
 	}
 
 	return description, nil
@@ -186,21 +185,21 @@ func (das *DeepAnalysisService) analyzeExcelFile(filePath string) (string, error
 
 	// Skip very large Excel files
 	if info.Size() > maxExcelFileSize {
-		return fmt.Sprintf("Large Excel file (%d bytes)", info.Size()), nil
+		return "", fmt.Errorf("Excel file too large (%d bytes)", info.Size())
 	}
 
 	// Open Excel file
 	f, err := excelize.OpenFile(filePath)
 	if err != nil {
 		das.logger.Debug("Failed to open Excel file %s: %v", filePath, err)
-		return fmt.Sprintf("Excel file: %s", filepath.Base(filePath)), nil
+		return "", fmt.Errorf("failed to open Excel file: %w", err)
 	}
 	defer f.Close()
 
 	// Get all sheet names
 	sheets := f.GetSheetList()
 	if len(sheets) == 0 {
-		return fmt.Sprintf("Empty Excel file: %s", filepath.Base(filePath)), nil
+		return "", fmt.Errorf("Excel file has no sheets")
 	}
 
 	// Extract content from all sheets
@@ -245,8 +244,7 @@ func (das *DeepAnalysisService) analyzeExcelFile(filePath string) (string, error
 	description, err := das.analyzeContentWithLLM(content, "excel", filepath.Base(filePath))
 	if err != nil {
 		das.logger.Debug("Failed to analyze Excel file %s: %v", filePath, err)
-		// Fallback to basic description
-		return fmt.Sprintf("Excel file with %d sheets: %s", len(sheets), filepath.Base(filePath)), nil
+		return "", fmt.Errorf("Excel analysis failed: %w", err)
 	}
 
 	return description, nil
@@ -261,7 +259,7 @@ func (das *DeepAnalysisService) analyzePowerPointFile(filePath string) (string, 
 
 	// Skip very large PowerPoint files
 	if info.Size() > maxPowerPointFileSize {
-		return fmt.Sprintf("Large PowerPoint file (%d bytes)", info.Size()), nil
+		return "", fmt.Errorf("PowerPoint file too large (%d bytes)", info.Size())
 	}
 
 	ext := strings.ToLower(filepath.Ext(filePath))
@@ -270,14 +268,14 @@ func (das *DeepAnalysisService) analyzePowerPointFile(filePath string) (string, 
 	// .ppt (legacy binary format) requires platform-specific tools
 	if ext == ".ppt" {
 		das.logger.Debug("Legacy .ppt format not supported, skipping: %s", filePath)
-		return fmt.Sprintf("PowerPoint presentation (legacy .ppt format): %s", filepath.Base(filePath)), nil
+		return "", fmt.Errorf("legacy .ppt format not supported")
 	}
 
 	// Open .pptx file as a ZIP archive
 	zipReader, err := zip.OpenReader(filePath)
 	if err != nil {
 		das.logger.Debug("Failed to open PowerPoint file as ZIP %s: %v", filePath, err)
-		return fmt.Sprintf("PowerPoint presentation: %s", filepath.Base(filePath)), nil
+		return "", fmt.Errorf("failed to open PowerPoint file: %w", err)
 	}
 	defer zipReader.Close()
 
@@ -317,7 +315,7 @@ func (das *DeepAnalysisService) analyzePowerPointFile(filePath string) (string, 
 
 	if text == "" {
 		das.logger.Debug("Extracted text is empty for: %s", filePath)
-		return fmt.Sprintf("Empty PowerPoint presentation: %s", filepath.Base(filePath)), nil
+		return "", fmt.Errorf("PowerPoint presentation with %d slides has no extractable text", slideCount)
 	}
 
 	// Build content with metadata
@@ -332,8 +330,7 @@ func (das *DeepAnalysisService) analyzePowerPointFile(filePath string) (string, 
 	description, err := das.analyzeContentWithLLM(content, "powerpoint", filepath.Base(filePath))
 	if err != nil {
 		das.logger.Debug("Failed to analyze PowerPoint file %s: %v", filePath, err)
-		// Fallback to basic description
-		return fmt.Sprintf("PowerPoint presentation with %d slides: %s", slideCount, filepath.Base(filePath)), nil
+		return "", fmt.Errorf("PowerPoint analysis failed: %w", err)
 	}
 
 	return description, nil
@@ -348,14 +345,14 @@ func (das *DeepAnalysisService) analyzePDFFile(filePath string) (string, error) 
 
 	// Skip very large PDFs
 	if info.Size() > maxPDFFileSize {
-		return fmt.Sprintf("Large PDF file (%d bytes)", info.Size()), nil
+		return "", fmt.Errorf("PDF file too large (%d bytes)", info.Size())
 	}
 
 	// Open PDF using go-fitz
 	doc, err := fitz.New(filePath)
 	if err != nil {
 		das.logger.Debug("Failed to open PDF with go-fitz: %v", err)
-		return fmt.Sprintf("PDF file: %s", filepath.Base(filePath)), nil
+		return "", fmt.Errorf("failed to open PDF: %w", err)
 	}
 	defer doc.Close()
 
@@ -379,7 +376,7 @@ func (das *DeepAnalysisService) analyzePDFFile(filePath string) (string, error) 
 	extractedText := strings.TrimSpace(textBuilder.String())
 
 	if extractedText == "" {
-		return fmt.Sprintf("PDF file with %d pages (no text content): %s", totalPages, filepath.Base(filePath)), nil
+		return "", fmt.Errorf("PDF file with %d pages has no extractable text", totalPages)
 	}
 
 	das.logger.Debug("Extracted %d characters of text from %d pages", len(extractedText), totalPages)
@@ -392,7 +389,7 @@ func (das *DeepAnalysisService) analyzePDFFile(filePath string) (string, error) 
 	description, err := das.analyzeContentWithLLM(content, "pdf", filepath.Base(filePath))
 	if err != nil {
 		das.logger.Debug("Failed to analyze PDF file %s: %v", filePath, err)
-		return fmt.Sprintf("PDF file with %d pages: %s", totalPages, filepath.Base(filePath)), nil
+		return "", fmt.Errorf("PDF analysis failed: %w", err)
 	}
 
 	return description, nil

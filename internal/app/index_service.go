@@ -691,8 +691,11 @@ func (ido *IndexDirectoryOrchestrator) indexFile(filePath string) error {
 	// Analyze file to get description
 	description, err := ido.analyzer.AnalyzeFile(filePath)
 	if err != nil {
-		ido.logger.Debug("Failed to analyze file %s, using basic description: %v", filePath, err)
-		description = fmt.Sprintf("%s file", fileType)
+		// Skip indexing if analysis fails for any file type
+		// This allows re-analysis when a more capable model is configured
+		// or when the file becomes accessible/processable
+		ido.logger.Debug("Skipping file %s due to analysis failure: %v", filePath, err)
+		return nil
 	}
 
 	// Store in index with modification time
