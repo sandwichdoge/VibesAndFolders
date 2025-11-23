@@ -1,16 +1,22 @@
 package app
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/gen2brain/go-fitz"
 )
 
 const (
-	maxTextFileSize  = 50 * 1024       // 50KB for text files
-	maxImageFileSize = 5 * 1024 * 1024 // 5MB for images
+	maxTextFileSize  = 50 * 1024        // 50KB for text files
+	maxImageFileSize = 5 * 1024 * 1024  // 5MB for images
+	maxPDFFileSize   = 50 * 1024 * 1024 // 50MB for PDFs
 )
 
 // DeepAnalysisService handles multimodal file analysis
@@ -39,6 +45,8 @@ func (das *DeepAnalysisService) AnalyzeFile(filePath string) (string, error) {
 		return das.analyzeTextFile(filePath)
 	case "image":
 		return das.analyzeImageFile(filePath)
+	case "pdf":
+		return das.analyzePDFFile(filePath)
 	default:
 		return das.analyzeGenericFile(filePath)
 	}
@@ -106,6 +114,195 @@ func (das *DeepAnalysisService) analyzeImageFile(filePath string) (string, error
 	return description, nil
 }
 
+// analyzePDFFile converts PDF pages to images and analyzes them
+func (das *DeepAnalysisService) analyzePDFFile(filePath string) (string, error) {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	// Skip very large PDFs
+	if info.Size() > maxPDFFileSize {
+		return fmt.Sprintf("Large PDF file (%d bytes)", info.Size()), nil
+	}
+
+	// Open PDF using go-fitz (cross-platform, no external dependencies)
+	doc, err := fitz.New(filePath)
+	if err != nil {
+		das.logger.Debug("Failed to open PDF with go-fitz: %v", err)
+		return fmt.Sprintf("PDF file: %s", filepath.Base(filePath)), nil
+	}
+	defer doc.Close()
+
+	totalPages := doc.NumPage()
+	das.logger.Debug("Successfully opened PDF: %s (%d pages)", filePath, totalPages)
+
+	// Process first 4 pages only
+	maxPages := 4
+	if totalPages < maxPages {
+		maxPages = totalPages
+	}
+
+	// Convert pages to images and encode to base64
+	var imageContents []map[string]interface{}
+	for pageNum := 0; pageNum < maxPages; pageNum++ {
+		// Render page to image at 150 DPI (default is 72)
+		// go-fitz uses a zoom factor: 150 DPI = 150/72 = 2.08 zoom
+		img, err := doc.Image(pageNum)
+		if err != nil {
+			das.logger.Debug("Failed to render page %d: %v", pageNum+1, err)
+			continue
+		}
+
+		// Encode image to PNG in memory
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, img); err != nil {
+			das.logger.Debug("Failed to encode page %d to PNG: %v", pageNum+1, err)
+			continue
+		}
+
+		imageData := buf.Bytes()
+
+		// DEBUG: Save a copy of the converted image for inspection
+		debugPath := filepath.Join(os.TempDir(), fmt.Sprintf("pdf-debug-%s-page%d.png", filepath.Base(filePath), pageNum+1))
+		if err := os.WriteFile(debugPath, imageData, 0644); err == nil {
+			das.logger.Debug("DEBUG: Saved converted PDF page to: %s", debugPath)
+		}
+
+		// Encode to base64 for API
+		base64Image := base64.StdEncoding.EncodeToString(imageData)
+		imageContents = append(imageContents, map[string]interface{}{
+			"type": "image_url",
+			"image_url": map[string]string{
+				"url": fmt.Sprintf("data:image/png;base64,%s", base64Image),
+			},
+		})
+	}
+
+	if len(imageContents) == 0 {
+		return fmt.Sprintf("PDF file: %s", filepath.Base(filePath)), nil
+	}
+
+	das.logger.Debug("Successfully converted %d pages from PDF: %s", len(imageContents), filePath)
+
+	// Use multimodal LLM to analyze all pages together
+	description, err := das.analyzePDFWithLLM(imageContents, filepath.Base(filePath), totalPages)
+	if err != nil {
+		das.logger.Debug("Failed to analyze PDF file %s: %v", filePath, err)
+		return fmt.Sprintf("PDF file with %d pages: %s", totalPages, filepath.Base(filePath)), nil
+	}
+
+	return description, nil
+}
+
+// analyzePDFWithLLM sends multiple PDF page images to multimodal LLM for analysis
+func (das *DeepAnalysisService) analyzePDFWithLLM(imageContents []map[string]interface{}, fileName string, totalPages int) (string, error) {
+	systemPrompt := `You are a precise document analysis assistant. Your task is to analyze PDF page images and describe ONLY what you can actually see in them.
+
+CRITICAL RULES:
+- Only describe content that is clearly visible in the provided images
+- If images are unclear, blurry, or unreadable, state that explicitly
+- Do NOT make assumptions about content you cannot see
+- Do NOT invent details that aren't present
+- Focus on: document type, main topic, visible headings, key sections, and purpose
+- Be factual and specific, citing visible elements (e.g., "shows a table with X columns", "contains section titled Y")
+- Maximum 3 sentences
+
+If the images are too low quality to read, respond with: "Unable to analyze - images are not clear enough to read text reliably."`
+
+	// Build the user message with text followed by all images
+	userText := fmt.Sprintf("Document filename: %s\nPages shown: %d of %d total\n\nDescribe ONLY what you can clearly see in these page images. Do not speculate or infer content you cannot directly observe:", fileName, len(imageContents), totalPages)
+
+	// Create content array starting with text
+	contentArray := []map[string]interface{}{
+		{
+			"type": "text",
+			"text": userText,
+		},
+	}
+
+	// Add all images
+	contentArray = append(contentArray, imageContents...)
+
+	reqBody := map[string]interface{}{
+		"model": das.config.Model,
+		"messages": []map[string]interface{}{
+			{
+				"role":    "system",
+				"content": systemPrompt,
+			},
+			{
+				"role":    "user",
+				"content": contentArray,
+			},
+		},
+		"max_tokens":  200,
+		"temperature": 0.3, // Lower temperature for more factual, less creative responses
+	}
+
+	headers := map[string]string{
+		"Authorization": fmt.Sprintf("Bearer %s", das.config.APIKey),
+		"HTTP-Referer":  "https://github.com/sandwichdoge/vibesandfolders",
+		"X-Title":       "VibesAndFolders",
+	}
+
+	body, err := das.httpClient.Post(das.config.Endpoint, headers, reqBody)
+	if err != nil {
+		return "", err
+	}
+
+	var response struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", err
+	}
+
+	if len(response.Choices) > 0 {
+		summary := strings.TrimSpace(response.Choices[0].Message.Content)
+
+		// Validate that the response is not empty or generic
+		if summary == "" {
+			return "", fmt.Errorf("LLM returned empty response")
+		}
+
+		// Check for common hallucination patterns - responses that are too generic or unrelated
+		lowerSummary := strings.ToLower(summary)
+		suspiciousPatterns := []string{
+			"i cannot", "i can't", "i'm unable", "i don't have access",
+			"as an ai", "as a language model", "i apologize",
+		}
+		for _, pattern := range suspiciousPatterns {
+			if strings.Contains(lowerSummary, pattern) {
+				das.logger.Debug("LLM response contains refusal pattern: %s", summary)
+				return fmt.Sprintf("PDF document: %s (%d pages)", fileName, totalPages), nil
+			}
+		}
+
+		// Warn if response seems unrelated to document analysis
+		if !strings.Contains(lowerSummary, "document") && !strings.Contains(lowerSummary, "page") &&
+			!strings.Contains(lowerSummary, "shows") && !strings.Contains(lowerSummary, "contains") &&
+			!strings.Contains(lowerSummary, "pdf") && !strings.Contains(lowerSummary, "file") &&
+			!strings.Contains(lowerSummary, "text") && len(summary) < 20 {
+			das.logger.Debug("LLM response seems unrelated or too short: %s", summary)
+			return fmt.Sprintf("PDF document: %s (%d pages)", fileName, totalPages), nil
+		}
+
+		// Add page count info if analyzing subset
+		if totalPages > len(imageContents) {
+			summary = fmt.Sprintf("%s [Analyzed %d of %d pages]", summary, len(imageContents), totalPages)
+		}
+		return summary, nil
+	}
+
+	return "", fmt.Errorf("no response from LLM")
+}
+
 // analyzeGenericFile provides basic file information
 func (das *DeepAnalysisService) analyzeGenericFile(filePath string) (string, error) {
 	info, err := os.Stat(filePath)
@@ -165,10 +362,18 @@ func (das *DeepAnalysisService) analyzeContentWithLLM(content, contentType, file
 
 // analyzeImageWithLLM sends image to multimodal LLM for analysis
 func (das *DeepAnalysisService) analyzeImageWithLLM(base64Image, mimeType, fileName string) (string, error) {
-	systemPrompt := `You are an image analysis assistant. Analyze the provided image and provide a concise, single-line description (max 100 characters) that captures what the image shows. Be specific and descriptive.`
+	systemPrompt := `You are a precise image analysis assistant. Describe ONLY what you can actually see in the image.
+
+RULES:
+- Describe visible subjects, objects, scenes, and composition
+- If the image contains text, mention it (e.g., "screenshot of code", "diagram with labels")
+- Be specific and factual (e.g., "photo of a red car on a highway", not "transportation image")
+- If unclear or corrupted, state "Image is unclear or corrupted"
+- Do NOT invent details you cannot see
+- Maximum 100 characters`
 
 	// Create multimodal message with image
-	userText := fmt.Sprintf("Analyze this image (filename: %s) and provide only a brief description:", fileName)
+	userText := fmt.Sprintf("Image: %s\n\nDescribe only what is clearly visible:", fileName)
 	reqBody := map[string]interface{}{
 		"model": das.config.Model,
 		"messages": []map[string]interface{}{
@@ -192,7 +397,8 @@ func (das *DeepAnalysisService) analyzeImageWithLLM(base64Image, mimeType, fileN
 				},
 			},
 		},
-		"max_tokens": 100,
+		"max_tokens":  100,
+		"temperature": 0.3, // Lower temperature for more factual responses
 	}
 
 	headers := map[string]string{
@@ -219,12 +425,18 @@ func (das *DeepAnalysisService) analyzeImageWithLLM(base64Image, mimeType, fileN
 	}
 
 	if len(response.Choices) > 0 {
-		return response.Choices[0].Message.Content, nil
+		description := strings.TrimSpace(response.Choices[0].Message.Content)
+
+		// Basic validation - reject obvious hallucinations
+		if description == "" {
+			return "", fmt.Errorf("LLM returned empty response")
+		}
+
+		return description, nil
 	}
 
 	return "", fmt.Errorf("no response from LLM")
 }
-
 
 // truncateContent truncates content to a maximum length
 func (das *DeepAnalysisService) truncateContent(content string, maxLen int) string {
@@ -255,7 +467,7 @@ func (das *DeepAnalysisService) getMimeType(filePath string) string {
 
 // DetermineFileType determines the type of file based on extension
 func DetermineFileType(filePath string) string {
-	ext := filepath.Ext(filePath)
+	ext := strings.ToLower(filepath.Ext(filePath))
 	switch ext {
 	case ".txt", ".md", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf":
 		return "text"
@@ -267,10 +479,11 @@ func DetermineFileType(filePath string) string {
 		return "video"
 	case ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a":
 		return "audio"
-	case ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx":
+	case ".pdf":
+		return "pdf"
+	case ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx":
 		return "document"
 	default:
 		return "other"
 	}
 }
-

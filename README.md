@@ -27,10 +27,11 @@ The Deep Analysis feature uses multimodal AI to intelligently index and analyze 
 - Indexes files in a SQLite database with AI-generated descriptions
 - Analyzes text files (code, documents, markdown, etc.) to understand their content
 - Analyzes images using vision AI to describe what they contain
+- Analyzes PDFs by converting first 4 pages to images (cross-platform, no external dependencies)
 - **Sends file descriptions to the AI** when organizing - the AI sees content summaries, not just filenames
 - Tracks file changes using last-modified timestamps for efficient change detection
 - Updates the index after file operations (move/rename) and rollbacks
-- Skips analysis of large files (>50KB for text, >5MB for images)
+- Skips analysis of large files (>50KB for text, >5MB for images, >50MB for PDFs)
 
 **Performance:**
 - Only new or modified files are analyzed (uses file modification time for change detection)
@@ -42,3 +43,6 @@ The Deep Analysis feature uses multimodal AI to intelligently index and analyze 
 make setup
 make run
 ```
+
+TODO:
+Custom prompt for deep analysis indexing
