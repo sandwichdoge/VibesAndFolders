@@ -103,11 +103,11 @@ jobs:
             ls -la cmd/vibesandfolders/
             exit 1
           fi
-          
+
           # Extract the tarball
           mkdir -p build-temp
           tar -xf "$TARFILE" -C build-temp
-          
+
           # Find the binary
           BINARY=$(find build-temp -type f -executable -name "VibesAndFolders" -o -name "vibesandfolders" | head -1)
           if [ -z "$BINARY" ]; then
@@ -115,9 +115,9 @@ jobs:
             find build-temp -type f
             exit 1
           fi
-          
-          # Create DEB package structure
-          VERSION="1.0.0"
+
+          # Extract version from FyneApp.toml
+          VERSION=$(grep -E '^\s*Version\s*=' cmd/vibesandfolders/FyneApp.toml | sed -E 's/.*=\s*"([^"]+)".*/\1/')
           DEB_DIR="deb-package"
           mkdir -p ${DEB_DIR}/DEBIAN
           mkdir -p ${DEB_DIR}/usr/local/bin

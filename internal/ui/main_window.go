@@ -592,7 +592,7 @@ func (mw *MainWindow) onDeleteIndex() {
 func (mw *MainWindow) showAboutDialog() {
 	version := mw.app.Metadata().Version
 	if version == "" {
-		version = "dev"
+		version = "dev" // Fallback for development builds (go run)
 	}
 
 	aboutText := fmt.Sprintf(`VibesAndFolders
