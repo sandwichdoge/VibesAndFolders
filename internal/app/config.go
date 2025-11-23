@@ -12,9 +12,9 @@ const (
 	configFileName = "config.json"
 
 	// Default values
-	defaultEndpoint = "https://openrouter.ai/api/v1/chat/completions"
-	DefaultAPIKey   = "YOUR_API_KEY_HERE"
-	defaultModel    = "moonshotai/kimi-k2-0905"
+	defaultEndpoint     = "https://openrouter.ai/api/v1/chat/completions"
+	DefaultAPIKey       = "YOUR_API_KEY_HERE"
+	defaultModel        = "moonshotai/kimi-k2-0905"
 	defaultSystemPrompt = `You are a file organization assistant.
 You must output a stream of valid JSON objects.
 
@@ -57,19 +57,20 @@ RULES:
 - Be specific and factual (e.g., "photo of a red car on a highway", not "transportation image")
 - If unclear or corrupted, state "Image is unclear or corrupted"
 - Do NOT invent details you cannot see
+- Include the content rating of the image (G, PG, 18+)
 - Maximum 100 characters`
 )
 
 type Config struct {
-	Endpoint              string `json:"endpoint"`
-	APIKey                string `json:"api_key"`
-	Model                 string `json:"model"`
-	SystemPrompt          string `json:"system_prompt"`
-	PDFAnalysisPrompt     string `json:"pdf_analysis_prompt"`
-	TextAnalysisPrompt    string `json:"text_analysis_prompt"`
-	ImageAnalysisPrompt   string `json:"image_analysis_prompt"`
-	EnableDeepAnalysis    bool   `json:"enable_deep_analysis"`
-	IndexDBPath           string `json:"index_db_path"`
+	Endpoint            string `json:"endpoint"`
+	APIKey              string `json:"api_key"`
+	Model               string `json:"model"`
+	SystemPrompt        string `json:"system_prompt"`
+	PDFAnalysisPrompt   string `json:"pdf_analysis_prompt"`
+	TextAnalysisPrompt  string `json:"text_analysis_prompt"`
+	ImageAnalysisPrompt string `json:"image_analysis_prompt"`
+	EnableDeepAnalysis  bool   `json:"enable_deep_analysis"`
+	IndexDBPath         string `json:"index_db_path"`
 }
 
 // LoadConfig loads configuration from app storage
