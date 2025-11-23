@@ -45,6 +45,7 @@ type MainWindow struct {
 	executeBtn        *widget.Button
 	analyzeBtn        *widget.Button
 	rollbackBtn       *widget.Button
+	bottomStatus      *fyne.Container
 
 	lastOutputContent     string
 	currentOperations     []app.FileOperation
@@ -161,7 +162,7 @@ func (mw *MainWindow) setupLayout() {
 		widget.NewLabel("Output:"),
 	)
 
-	bottomStatus := container.NewVBox(
+	mw.bottomStatus = container.NewVBox(
 		mw.progressBar,
 		mw.statusLabel,
 		mw.executeBtn,
@@ -169,7 +170,7 @@ func (mw *MainWindow) setupLayout() {
 	)
 
 	mw.window.SetContent(container.NewPadded(
-		container.NewBorder(topInputs, bottomStatus, nil, nil, mw.outputText),
+		container.NewBorder(topInputs, mw.bottomStatus, nil, nil, mw.outputText),
 	))
 	mw.window.Resize(fyne.NewSize(defaultWindowWidth, defaultWindowHeight))
 }
@@ -192,6 +193,12 @@ func (mw *MainWindow) setOutputText(text string) {
 	lineCount := strings.Count(text, "\n")
 	mw.outputText.CursorRow = lineCount + 1
 	mw.outputText.Refresh()
+}
+
+func (mw *MainWindow) refreshBottomStatus() {
+	if mw.bottomStatus != nil {
+		mw.bottomStatus.Refresh()
+	}
 }
 
 func (mw *MainWindow) getRelativePath(basePath, fullPath string) string {
@@ -242,6 +249,7 @@ func (mw *MainWindow) onAnalyze() {
 	mw.analyzeBtn.Disable()
 	mw.executeBtn.Hide()
 	mw.rollbackBtn.Hide()
+	mw.refreshBottomStatus()
 	mw.statusLabel.SetText("Analyzing directory...")
 
 	mw.setOutputText("")
@@ -285,6 +293,7 @@ func (mw *MainWindow) onAnalyze() {
 		fyne.Do(func() {
 			mw.progressBar.Hide()
 			mw.analyzeBtn.Enable()
+			mw.refreshBottomStatus()
 
 			if mw.config.EnableDeepAnalysis {
 				mw.updateIndexStatus()
@@ -304,6 +313,7 @@ func (mw *MainWindow) onAnalyze() {
 			mw.statusLabel.SetText(fmt.Sprintf("Ready to execute %d operations", len(result.Operations)))
 			mw.currentOperations = result.Operations
 			mw.executeBtn.Show()
+			mw.refreshBottomStatus()
 		})
 	}()
 }
@@ -311,6 +321,7 @@ func (mw *MainWindow) onAnalyze() {
 func (mw *MainWindow) onExecute() {
 	mw.executeBtn.Hide()
 	mw.rollbackBtn.Hide()
+	mw.refreshBottomStatus()
 
 	go func() {
 		result := mw.orchestrator.ExecuteOrganization(app.ExecutionRequest{
@@ -325,6 +336,7 @@ func (mw *MainWindow) onExecute() {
 func (mw *MainWindow) onRollback() {
 	mw.rollbackBtn.Hide()
 	mw.progressBar.Show()
+	mw.refreshBottomStatus()
 	mw.statusLabel.SetText("Rolling back changes...")
 
 	go func() {
@@ -376,6 +388,7 @@ func (mw *MainWindow) onRollback() {
 
 		fyne.Do(func() {
 			mw.progressBar.Hide()
+			mw.refreshBottomStatus()
 			mw.displayExecutionResult(result, true)
 		})
 	}()
@@ -432,9 +445,11 @@ func (mw *MainWindow) displayExecutionResult(result app.ExecutionResult, isRollb
 
 	if !isRollback && len(mw.lastSuccessfulResults) > 0 {
 		mw.rollbackBtn.Show()
+		mw.refreshBottomStatus()
 	} else if isRollback && result.FailCount == 0 {
 		// If rollback finished successfully, we return to the "Ready to Execute" state
 		mw.executeBtn.Show()
+		mw.refreshBottomStatus()
 		mw.statusLabel.SetText("Rollback Complete. Ready to Execute original plan.")
 	}
 
@@ -553,6 +568,7 @@ func (mw *MainWindow) onDeleteIndex() {
 		go func() {
 			fyne.Do(func() {
 				mw.progressBar.Show()
+				mw.refreshBottomStatus()
 				mw.statusLabel.SetText("Deleting index...")
 			})
 
@@ -560,6 +576,7 @@ func (mw *MainWindow) onDeleteIndex() {
 
 			fyne.Do(func() {
 				mw.progressBar.Hide()
+				mw.refreshBottomStatus()
 				if err != nil {
 					dialog.ShowError(fmt.Errorf("failed to delete index: %w", err), mw.window)
 					mw.statusLabel.SetText("Error deleting index")
