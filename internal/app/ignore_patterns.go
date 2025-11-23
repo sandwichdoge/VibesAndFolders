@@ -57,17 +57,34 @@ func (m *IgnorePatternMatcher) ShouldIgnore(path string, isDir bool) bool {
 
 		if isDirPattern {
 			// Directory-specific pattern
-			// Check if this directory matches
+			// Check if this directory matches at the root level
 			if isDir && (path == patternWithoutSlash || strings.HasPrefix(path, patternWithoutSlash+"/")) {
 				return true
 			}
 
-			// Check if this is a file inside an ignored directory
+			// Check if this is a file inside an ignored directory (at root level)
 			if !isDir && strings.HasPrefix(path, patternWithoutSlash+"/") {
 				return true
 			}
 
-			// Also try glob matching for directory patterns
+			// If pattern doesn't contain wildcards, also check if it matches the directory name at ANY level
+			// For example, ".git/" should match both ".git" and "backup/.git"
+			if !strings.Contains(patternWithoutSlash, "*") && !strings.Contains(patternWithoutSlash, "?") {
+				pathParts := strings.Split(path, "/")
+				for i, part := range pathParts {
+					if part == patternWithoutSlash {
+						// This directory matches the pattern
+						if isDir && i == len(pathParts)-1 {
+							// This is the directory itself
+							return true
+						}
+						// This is a file inside the ignored directory (or the directory is an ancestor)
+						return true
+					}
+				}
+			}
+
+			// Also try glob matching for directory patterns with wildcards
 			matched, err := doublestar.Match(patternWithoutSlash, path)
 			if err == nil && matched {
 				return true

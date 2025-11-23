@@ -52,7 +52,7 @@ func TestIgnorePatternMatcher_ShouldIgnore(t *testing.T) {
 			patterns: ".git/",
 			path:     "project/.git",
 			isDir:    true,
-			expected: false, // need **/.git/ for nested
+			expected: true, // now matches directory name at any level
 		},
 		{
 			name:     "ignore with doublestar",
@@ -122,6 +122,48 @@ func TestIgnorePatternMatcher_ShouldIgnore(t *testing.T) {
 			patterns: "build/",
 			path:     "build/output.exe",
 			isDir:    false,
+			expected: true,
+		},
+		{
+			name:     "ignore .git in deeply nested path",
+			patterns: ".git/",
+			path:     "backup/old/.git",
+			isDir:    true,
+			expected: true,
+		},
+		{
+			name:     "ignore file in nested .git",
+			patterns: ".git/",
+			path:     "backup/.git/config",
+			isDir:    false,
+			expected: true,
+		},
+		{
+			name:     "ignore node_modules at any level",
+			patterns: "node_modules/",
+			path:     "packages/frontend/node_modules",
+			isDir:    true,
+			expected: true,
+		},
+		{
+			name:     "ignore file in nested node_modules",
+			patterns: "node_modules/",
+			path:     "src/node_modules/package.json",
+			isDir:    false,
+			expected: true,
+		},
+		{
+			name:     "do not ignore directory with .git suffix",
+			patterns: ".git/",
+			path:     "my.git-repo",
+			isDir:    true,
+			expected: false,
+		},
+		{
+			name:     "wildcard patterns still work with doublestar",
+			patterns: "**/test-*",
+			path:     "src/test-utils",
+			isDir:    true,
 			expected: true,
 		},
 	}
