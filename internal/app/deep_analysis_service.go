@@ -455,7 +455,7 @@ func (das *DeepAnalysisService) analyzeContentWithLLM(content, contentType, file
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},
 		},
-		MaxTokens: 100,
+		MaxTokens: 150,
 		Stream:    false,
 	}
 
