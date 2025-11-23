@@ -6,6 +6,7 @@ For safety, it can only move or rename a file/folder, never delete. It will neve
 
 By default, all decisions are entirely based on filenames, it does not read the file content. However, you can enable **Deep Analysis** mode to leverage multimodal AI to analyze text and image files for smarter organization.
 
+<img width="1030" height="1019" alt="image" src="https://github.com/user-attachments/assets/2365f5ff-ed4f-489b-b05f-72353ccd99a9" />
 
 ### Basic Usage:
 
@@ -15,8 +16,6 @@ By default, all decisions are entirely based on filenames, it does not read the 
 - Type your instructions in the text box (e.g., "Move all images into a Photos folder and documents into a Docs folder").
 - Click Analyze to see a preview of the changes.
 - If the preview looks correct, click Execute to apply the changes.
-
-**Downloads (Mac, Windows, Linux):** https://github.com/sandwichdoge/vibesandfolders/releases/
 
 ### Deep Analysis Feature:
 
@@ -33,6 +32,9 @@ The Deep Analysis feature uses multimodal AI to intelligently index and analyze 
 - Only new or modified files are analyzed (uses file modification time for change detection)
 - Large files are skipped to avoid processing overhead
 - Index is stored locally in SQLite for fast access
+
+### Downloads (Mac, Windows, Linux):
+https://github.com/sandwichdoge/vibesandfolders/releases/
 
 ### How to build and run from source:
 ```
