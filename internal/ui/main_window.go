@@ -102,7 +102,7 @@ func (mw *MainWindow) initializeComponents() {
 	)
 	mw.indexDetailsBox.Hidden = !mw.config.EnableDeepAnalysis
 
-	mw.deepAnalysisCheck = widget.NewCheck("Enable Deep Analysis (PDFs, images, docs, sheets content indexing)", func(checked bool) {
+	mw.deepAnalysisCheck = widget.NewCheck("Enable Deep Analysis (PDFs, images, docs, sheets, slides content indexing)", func(checked bool) {
 		mw.config.EnableDeepAnalysis = checked
 		app.SaveConfig(mw.app, mw.config, mw.logger)
 		mw.updateIndexDetailsVisibility()
@@ -177,10 +177,11 @@ func (mw *MainWindow) setupLayout() {
 
 func (mw *MainWindow) setupMenu() {
 	settingsMenu := fyne.NewMenu("Settings",
-		fyne.NewMenuItem("Configure...", func() {
+		fyne.NewMenuItem("Configure", func() {
 			configWindow := NewConfigWindow(mw.app, mw.config, mw.logger, mw.httpClient)
 			configWindow.Show(nil, nil)
 		}),
+		fyne.NewMenuItem("About", mw.showAboutDialog),
 	)
 	mainMenu := fyne.NewMainMenu(settingsMenu)
 	mw.window.SetMainMenu(mainMenu)
@@ -589,6 +590,23 @@ func (mw *MainWindow) onDeleteIndex() {
 			})
 		}()
 	}, mw.window)
+}
+
+func (mw *MainWindow) showAboutDialog() {
+	version := mw.app.Metadata().Version
+	if version == "" {
+		version = "dev"
+	}
+
+	aboutText := fmt.Sprintf(`VibesAndFolders
+Version %s
+
+An AI-powered desktop tool for organizing your files based on plain English instructions.
+
+Author: sandwichdoge
+GitHub: github.com/sandwichdoge/vibesandfolders`, version)
+
+	dialog.ShowInformation("About VibesAndFolders", aboutText, mw.window)
 }
 
 func (mw *MainWindow) Show() {
