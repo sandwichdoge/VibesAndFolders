@@ -8,9 +8,11 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/gen2brain/go-fitz"
+	"github.com/nguyenthenguyen/docx"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -19,6 +21,7 @@ const (
 	maxImageFileSize = 5 * 1024 * 1024  // 5MB for images
 	maxPDFFileSize   = 50 * 1024 * 1024 // 50MB for PDFs
 	maxExcelFileSize = 50 * 1024 * 1024 // 50MB for Excel files
+	maxDocFileSize   = 50 * 1024 * 1024 // 50MB for Word documents
 	maxExcelRows     = 30               // Max rows per sheet to process
 )
 
@@ -52,6 +55,8 @@ func (das *DeepAnalysisService) AnalyzeFile(filePath string) (string, error) {
 		return das.analyzePDFFile(filePath)
 	case "excel":
 		return das.analyzeExcelFile(filePath)
+	case "document":
+		return das.analyzeDocFile(filePath)
 	default:
 		return das.analyzeGenericFile(filePath)
 	}
@@ -114,6 +119,56 @@ func (das *DeepAnalysisService) analyzeImageFile(filePath string) (string, error
 		das.logger.Debug("Failed to analyze image file %s: %v", filePath, err)
 		// Fallback to basic description
 		return fmt.Sprintf("Image file: %s", filepath.Base(filePath)), nil
+	}
+
+	return description, nil
+}
+
+// analyzeDocFile extracts text from Word documents and analyzes them
+func (das *DeepAnalysisService) analyzeDocFile(filePath string) (string, error) {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	// Skip very large Word documents
+	if info.Size() > maxDocFileSize {
+		return fmt.Sprintf("Large Word document (%d bytes)", info.Size()), nil
+	}
+
+	ext := strings.ToLower(filepath.Ext(filePath))
+
+	// Only .docx is supported (modern Word format)
+	// .doc (legacy binary format) requires platform-specific tools
+	if ext == ".doc" {
+		das.logger.Debug("Legacy .doc format not supported, skipping: %s", filePath)
+		return fmt.Sprintf("Word document (legacy .doc format): %s", filepath.Base(filePath)), nil
+	}
+
+	// Open .docx file
+	doc, err := docx.ReadDocxFile(filePath)
+	if err != nil {
+		das.logger.Debug("Failed to open Word document %s: %v", filePath, err)
+		return fmt.Sprintf("Word document: %s", filepath.Base(filePath)), nil
+	}
+	defer doc.Close()
+
+	// Extract XML content
+	xmlContent := doc.Editable().GetContent()
+
+	// Extract plain text from XML
+	text := das.extractTextFromDocxXML(xmlContent)
+
+	if text == "" {
+		return fmt.Sprintf("Empty Word document: %s", filepath.Base(filePath)), nil
+	}
+
+	// Use LLM to analyze the Word document content
+	description, err := das.analyzeContentWithLLM(text, "word", filepath.Base(filePath))
+	if err != nil {
+		das.logger.Debug("Failed to analyze Word document %s: %v", filePath, err)
+		// Fallback to basic description
+		return fmt.Sprintf("Word document: %s", filepath.Base(filePath)), nil
 	}
 
 	return description, nil
@@ -518,6 +573,28 @@ func (das *DeepAnalysisService) truncateContent(content string, maxLen int) stri
 		return content
 	}
 	return content[:maxLen] + "..."
+}
+
+// extractTextFromDocxXML extracts plain text from Word document XML content
+func (das *DeepAnalysisService) extractTextFromDocxXML(xmlContent string) string {
+	// Extract text from <w:t> tags (Word text elements)
+	re := regexp.MustCompile(`<w:t[^>]*>([^<]*)</w:t>`)
+	matches := re.FindAllStringSubmatch(xmlContent, -1)
+
+	var textParts []string
+	for _, match := range matches {
+		if len(match) > 1 && match[1] != "" {
+			textParts = append(textParts, match[1])
+		}
+	}
+
+	// Join with spaces and clean up
+	text := strings.Join(textParts, " ")
+
+	// Replace multiple spaces with single space
+	text = regexp.MustCompile(`\s+`).ReplaceAllString(text, " ")
+
+	return strings.TrimSpace(text)
 }
 
 // getMimeType returns MIME type for common image formats
