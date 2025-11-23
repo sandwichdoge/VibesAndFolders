@@ -138,15 +138,140 @@ func (fs *DefaultFileService) CleanEmptyDirectories(rootPath string) (int, error
 	return removedCount, nil
 }
 
+// determineVerificationScope analyzes operations to determine which directories need verification.
+// If operations move files outside basePath (e.g., to parent directory), those paths are included.
+// Returns the common ancestor directory that encompasses all source and destination paths to avoid
+// double-counting files in nested directories.
+func (fs *DefaultFileService) determineVerificationScope(operations []FileOperation, basePath string) []string {
+	// Normalize basePath for comparison
+	basePath = filepath.Clean(basePath)
+
+	// Track unique directories that need verification
+	pathsMap := make(map[string]bool)
+	pathsMap[basePath] = true
+
+	for _, op := range operations {
+		// Check both source and destination directories
+		sourcePath := filepath.Clean(op.From)
+		sourceDir := filepath.Dir(sourcePath)
+		destPath := filepath.Clean(op.To)
+		destDir := filepath.Dir(destPath)
+
+		// Check if source is outside basePath
+		relSourcePath, err := filepath.Rel(basePath, sourceDir)
+		if err == nil && strings.HasPrefix(relSourcePath, "..") {
+			pathsMap[sourceDir] = true
+			fs.logger.Debug("Added verification path (external source): %s", sourceDir)
+		}
+
+		// Check if destination is outside basePath
+		relDestPath, err := filepath.Rel(basePath, destDir)
+		if err == nil && strings.HasPrefix(relDestPath, "..") {
+			pathsMap[destDir] = true
+			fs.logger.Debug("Added verification path (external destination): %s", destDir)
+		}
+	}
+
+	// Convert map to slice
+	paths := make([]string, 0, len(pathsMap))
+	for path := range pathsMap {
+		paths = append(paths, path)
+	}
+
+	// Sort for consistent ordering
+	sort.Strings(paths)
+
+	// If we have multiple paths, check for parent-child relationships
+	// If one path contains another, use only the parent to avoid double-counting
+	if len(paths) > 1 {
+		result := fs.findCommonAncestor(paths)
+		fs.logger.Info("Multi-path verification: using common ancestor %s to avoid double-counting", result)
+		return []string{result}
+	}
+
+	return paths
+}
+
+// findCommonAncestor finds the common ancestor directory of all given paths
+func (fs *DefaultFileService) findCommonAncestor(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	if len(paths) == 1 {
+		return paths[0]
+	}
+
+	// Start with the first path
+	common := paths[0]
+
+	// For each subsequent path, find the common ancestor with current common
+	for i := 1; i < len(paths); i++ {
+		common = fs.commonAncestorOfTwo(common, paths[i])
+	}
+
+	return common
+}
+
+// commonAncestorOfTwo finds the common ancestor of two paths
+func (fs *DefaultFileService) commonAncestorOfTwo(path1, path2 string) string {
+	// Clean both paths
+	path1 = filepath.Clean(path1)
+	path2 = filepath.Clean(path2)
+
+	// Check if paths are absolute
+	isAbs := filepath.IsAbs(path1) && filepath.IsAbs(path2)
+
+	// Split into components
+	parts1 := strings.Split(path1, string(filepath.Separator))
+	parts2 := strings.Split(path2, string(filepath.Separator))
+
+	// Find common prefix
+	var commonParts []string
+	minLen := len(parts1)
+	if len(parts2) < minLen {
+		minLen = len(parts2)
+	}
+
+	for i := 0; i < minLen; i++ {
+		if parts1[i] == parts2[i] {
+			commonParts = append(commonParts, parts1[i])
+		} else {
+			break
+		}
+	}
+
+	// Join back into path
+	if len(commonParts) == 0 {
+		return string(filepath.Separator)
+	}
+
+	result := filepath.Join(commonParts...)
+
+	// Restore leading slash for absolute paths if necessary
+	if isAbs && !filepath.IsAbs(result) {
+		result = string(filepath.Separator) + result
+	}
+
+	return result
+}
+
 func (fs *DefaultFileService) ExecuteOperations(operations []FileOperation, basePath string, cleanEmpty bool) (ExecutionResult, error) {
 	result := ExecutionResult{
 		Operations: make([]OperationResult, 0, len(operations)),
 	}
 
-	initialCount, err := fs.CountFiles(basePath)
-	if err != nil {
-		result.VerificationError = fmt.Errorf("integrity check failed: %w", err)
-		return result, result.VerificationError
+	// Determine all paths that need verification (basePath + any external destinations)
+	verificationPaths := fs.determineVerificationScope(operations, basePath)
+
+	// Count files across all verification paths before execution
+	initialCount := 0
+	for _, path := range verificationPaths {
+		count, err := fs.CountFiles(path)
+		if err != nil {
+			result.VerificationError = fmt.Errorf("integrity check failed for %s: %w", path, err)
+			return result, result.VerificationError
+		}
+		initialCount += count
 	}
 	result.InitialFileCount = initialCount
 
@@ -170,9 +295,14 @@ func (fs *DefaultFileService) ExecuteOperations(operations []FileOperation, base
 		}
 	}
 
-	finalCount, err := fs.CountFiles(basePath)
-	if err != nil {
-		result.VerificationError = fmt.Errorf("post-execution count failed: %w", err)
+	// Count files across all verification paths after execution
+	finalCount := 0
+	for _, path := range verificationPaths {
+		count, err := fs.CountFiles(path)
+		if err != nil {
+			result.VerificationError = fmt.Errorf("post-execution count failed for %s: %w", path, err)
+		}
+		finalCount += count
 	}
 	result.FinalFileCount = finalCount
 
