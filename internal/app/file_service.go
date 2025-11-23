@@ -9,15 +9,26 @@ import (
 )
 
 type DefaultFileService struct {
-	validator *Validator
-	logger    *Logger
+	validator      *Validator
+	logger         *Logger
+	ignoreMatcher  *IgnorePatternMatcher
 }
 
 func NewFileService(validator *Validator, logger *Logger) *DefaultFileService {
 	return &DefaultFileService{
-		validator: validator,
-		logger:    logger,
+		validator:     validator,
+		logger:        logger,
+		ignoreMatcher: nil, // Will be set when needed
 	}
+}
+
+// SetIgnorePatterns configures the ignore pattern matcher
+func (fs *DefaultFileService) SetIgnorePatterns(patterns string) {
+	if patterns == "" {
+		fs.ignoreMatcher = nil
+		return
+	}
+	fs.ignoreMatcher = NewIgnorePatternMatcher(patterns, fs.logger)
 }
 
 func (fs *DefaultFileService) CountFiles(rootPath string) (int, error) {
@@ -26,6 +37,18 @@ func (fs *DefaultFileService) CountFiles(rootPath string) (int, error) {
 		if err != nil {
 			return err
 		}
+
+		// Check if path should be ignored
+		if fs.ignoreMatcher != nil && path != rootPath {
+			relPath, err := filepath.Rel(rootPath, path)
+			if err == nil && fs.ignoreMatcher.ShouldIgnore(relPath, info.IsDir()) {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
+
 		if !info.IsDir() {
 			count++
 		}
@@ -51,6 +74,18 @@ func (fs *DefaultFileService) GetDirectoryStructure(rootPath string, maxDepth in
 		}
 
 		relPath = filepath.ToSlash(relPath)
+
+		// Check if path should be ignored
+		if fs.ignoreMatcher != nil && fs.ignoreMatcher.ShouldIgnore(relPath, info.IsDir()) {
+			if info.IsDir() {
+				// Show the ignored directory name (for context) but skip its contents
+				builder.WriteString(fmt.Sprintf("%s/\n", relPath))
+				return filepath.SkipDir
+			}
+			// Skip ignored files silently
+			return nil
+		}
+
 		currentDepth := len(strings.Split(relPath, "/"))
 
 		if maxDepth > 0 && currentDepth > maxDepth {

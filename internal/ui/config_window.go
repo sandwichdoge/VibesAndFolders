@@ -76,6 +76,13 @@ func (cw *ConfigWindow) Show(onFirstRunSubmit func(), onFirstRunCancel func()) {
 	imagePromptEntry.Wrapping = fyne.TextWrapWord
 	imagePromptEntry.SetMinRowsVisible(20)
 
+	// Ignore Patterns Tab
+	ignorePatternsEntry := widget.NewMultiLineEntry()
+	ignorePatternsEntry.SetText(cw.config.IgnorePatterns)
+	ignorePatternsEntry.SetPlaceHolder("Enter ignore patterns (one per line, # for comments)...")
+	ignorePatternsEntry.Wrapping = fyne.TextWrapWord
+	ignorePatternsEntry.SetMinRowsVisible(20)
+
 	// Determine the Model label based on Deep Analysis setting
 	modelLabel := "Model"
 	if cw.config.EnableDeepAnalysis {
@@ -143,6 +150,7 @@ func (cw *ConfigWindow) Show(onFirstRunSubmit func(), onFirstRunCancel func()) {
 		cw.config.TextAnalysisPrompt = textPromptEntry.Text
 		cw.config.ImageAnalysisPrompt = imagePromptEntry.Text
 		cw.config.IndexDBPath = dbPathEntry.Text
+		cw.config.IgnorePatterns = ignorePatternsEntry.Text
 		app.SaveConfig(cw.app, cw.config, cw.logger)
 
 		dialog.ShowInformation("Saved", "Configuration has been saved.", configWin)
@@ -193,6 +201,11 @@ func (cw *ConfigWindow) Show(onFirstRunSubmit func(), onFirstRunCancel func()) {
 	imagePromptScroll := container.NewScroll(imagePromptEntry)
 	imagePromptTab := container.NewBorder(imagePromptLabel, nil, nil, nil, imagePromptScroll)
 
+	// Create Ignore Patterns tab
+	ignorePatternsLabel := widget.NewLabelWithStyle("Ignore Patterns (one per line, similar to .gitignore):", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	ignorePatternsScroll := container.NewScroll(ignorePatternsEntry)
+	ignorePatternsTab := container.NewBorder(ignorePatternsLabel, nil, nil, nil, ignorePatternsScroll)
+
 	// Create tabs
 	tabs := container.NewAppTabs(
 		container.NewTabItem("General", generalTab),
@@ -200,6 +213,7 @@ func (cw *ConfigWindow) Show(onFirstRunSubmit func(), onFirstRunCancel func()) {
 		container.NewTabItem("PDF Analysis", pdfPromptTab),
 		container.NewTabItem("Text Analysis", textPromptTab),
 		container.NewTabItem("Image Analysis", imagePromptTab),
+		container.NewTabItem("Ignore Patterns", ignorePatternsTab),
 	)
 
 	buttonBar := container.NewHBox(saveBtn, cancelBtn)

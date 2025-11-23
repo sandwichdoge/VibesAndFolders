@@ -27,12 +27,18 @@ func main() {
 	aiService := app.NewOpenAIService(config, httpClient, logger)
 	fileService := app.NewFileService(validator, logger)
 
+	// Set ignore patterns from config
+	fileService.SetIgnorePatterns(config.IgnorePatterns)
+
 	// Initialize IndexService
 	indexService := app.NewIndexService(logger)
 	if err := indexService.Initialize(config.IndexDBPath); err != nil {
 		logger.Error("Failed to initialize index service: %v", err)
 		// Continue without indexing
 		indexService = nil
+	} else {
+		// Set ignore patterns for indexing
+		indexService.SetIgnorePatterns(config.IgnorePatterns)
 	}
 
 	// Initialize DeepAnalysisService (for file analysis)

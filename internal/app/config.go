@@ -59,6 +59,37 @@ RULES:
 - Do NOT invent details you cannot see
 - Include the content rating of the image (G, PG, 18+)
 - Maximum 100 characters`
+
+	defaultIgnorePatterns = `# Ignore patterns (one per line, similar to .gitignore)
+# Use * for wildcards, ** for recursive matching
+# Lines starting with # are comments
+
+# Version control
+.git/
+.svn/
+
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+build/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.cache`
 )
 
 type Config struct {
@@ -71,6 +102,7 @@ type Config struct {
 	ImageAnalysisPrompt string `json:"image_analysis_prompt"`
 	EnableDeepAnalysis  bool   `json:"enable_deep_analysis"`
 	IndexDBPath         string `json:"index_db_path"`
+	IgnorePatterns      string `json:"ignore_patterns"` // Multiline string with one pattern per line
 }
 
 // LoadConfig loads configuration from app storage
@@ -170,6 +202,7 @@ func loadDefaults(config *Config) {
 	config.ImageAnalysisPrompt = defaultImageAnalysisPrompt
 	config.EnableDeepAnalysis = false
 	config.IndexDBPath = "" // Will be set to app storage path at runtime
+	config.IgnorePatterns = defaultIgnorePatterns
 }
 
 // applyDefaults fills in any empty fields with default values
@@ -195,5 +228,8 @@ func applyDefaults(config *Config) {
 	}
 	if config.ImageAnalysisPrompt == "" {
 		config.ImageAnalysisPrompt = defaultImageAnalysisPrompt
+	}
+	if config.IgnorePatterns == "" {
+		config.IgnorePatterns = defaultIgnorePatterns
 	}
 }

@@ -88,15 +88,26 @@ type IndexSnapshot struct {
 
 // DefaultIndexService implements IndexService
 type DefaultIndexService struct {
-	db     *sql.DB
-	tx     *sql.Tx
-	logger *Logger
+	db            *sql.DB
+	tx            *sql.Tx
+	logger        *Logger
+	ignoreMatcher *IgnorePatternMatcher
 }
 
 func NewIndexService(logger *Logger) *DefaultIndexService {
 	return &DefaultIndexService{
-		logger: logger,
+		logger:        logger,
+		ignoreMatcher: nil,
 	}
+}
+
+// SetIgnorePatterns configures the ignore pattern matcher for indexing
+func (is *DefaultIndexService) SetIgnorePatterns(patterns string) {
+	if patterns == "" {
+		is.ignoreMatcher = nil
+		return
+	}
+	is.ignoreMatcher = NewIgnorePatternMatcher(patterns, is.logger)
 }
 
 func (is *DefaultIndexService) Initialize(dbPath string) error {
@@ -355,6 +366,20 @@ func (is *DefaultIndexService) ScanDirectoryChanges(dirPath string, maxDepth int
 	err = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+
+		// Check if path should be ignored (skip root dir)
+		if is.ignoreMatcher != nil && path != dirPath {
+			relPath, err := filepath.Rel(dirPath, path)
+			if err == nil {
+				relPath = filepath.ToSlash(relPath)
+				if is.ignoreMatcher.ShouldIgnore(relPath, info.IsDir()) {
+					if info.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+			}
 		}
 
 		// Calculate current depth relative to base directory
