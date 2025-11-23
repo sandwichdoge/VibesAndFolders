@@ -22,7 +22,7 @@ const (
 	maxPDFFileSize   = 50 * 1024 * 1024 // 50MB for PDFs
 	maxExcelFileSize = 50 * 1024 * 1024 // 50MB for Excel files
 	maxDocFileSize   = 50 * 1024 * 1024 // 50MB for Word documents
-	maxExcelRows     = 30               // Max rows per sheet to process
+	maxExcelRows     = 100              // Max rows per sheet to process
 )
 
 // DeepAnalysisService handles multimodal file analysis
@@ -615,8 +615,10 @@ func DetermineFileType(filePath string) string {
 		return "pdf"
 	case ".xls", ".xlsx":
 		return "excel"
-	case ".doc", ".docx", ".ppt", ".pptx":
+	case ".doc", ".docx":
 		return "document"
+	case ".ppt", ".pptx":
+		return "powerpoint"
 	default:
 		return "other"
 	}

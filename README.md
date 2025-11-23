@@ -26,7 +26,7 @@ The Deep Analysis feature uses multimodal AI to intelligently index and analyze 
 - Analyzes text, docs, excel, files, images (via vision AI), and PDFs
 - **Sends file descriptions to the AI** when organizing - the AI sees content summaries, not just filenames
 - Tracks file changes using last-modified timestamps for efficient change detection
-- Skips analysis of large files (>50KB for text, >5MB for images, >50MB for PDFs)
+- Skips analysis of large files (>50KB for text, >5MB for images, >50MB for PDFs and office docs)
 
 **Performance:**
 - Only new or modified files are analyzed (uses file modification time for change detection)
