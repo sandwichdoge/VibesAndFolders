@@ -163,12 +163,6 @@ func (das *DeepAnalysisService) analyzePDFFile(filePath string) (string, error) 
 
 		imageData := buf.Bytes()
 
-		// DEBUG: Save a copy of the converted image for inspection
-		debugPath := filepath.Join(os.TempDir(), fmt.Sprintf("pdf-debug-%s-page%d.png", filepath.Base(filePath), pageNum+1))
-		if err := os.WriteFile(debugPath, imageData, 0644); err == nil {
-			das.logger.Debug("DEBUG: Saved converted PDF page to: %s", debugPath)
-		}
-
 		// Encode to base64 for API
 		base64Image := base64.StdEncoding.EncodeToString(imageData)
 		imageContents = append(imageContents, map[string]interface{}{
