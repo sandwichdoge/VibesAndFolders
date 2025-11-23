@@ -1,11 +1,13 @@
 package app
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,12 +19,13 @@ import (
 )
 
 const (
-	maxTextFileSize  = 50 * 1024        // 50KB for text files
-	maxImageFileSize = 5 * 1024 * 1024  // 5MB for images
-	maxPDFFileSize   = 50 * 1024 * 1024 // 50MB for PDFs
-	maxExcelFileSize = 50 * 1024 * 1024 // 50MB for Excel files
-	maxDocFileSize   = 50 * 1024 * 1024 // 50MB for Word documents
-	maxExcelRows     = 100              // Max rows per sheet to process
+	maxTextFileSize       = 50 * 1024        // 50KB for text files
+	maxImageFileSize      = 5 * 1024 * 1024  // 5MB for images
+	maxPDFFileSize        = 50 * 1024 * 1024 // 50MB for PDFs
+	maxExcelFileSize      = 50 * 1024 * 1024 // 50MB for Excel files
+	maxDocFileSize        = 50 * 1024 * 1024 // 50MB for Word documents
+	maxPowerPointFileSize = 50 * 1024 * 1024 // 50MB for PowerPoint files
+	maxExcelRows          = 100              // Max rows per sheet to process
 )
 
 // DeepAnalysisService handles multimodal file analysis
@@ -57,6 +60,8 @@ func (das *DeepAnalysisService) AnalyzeFile(filePath string) (string, error) {
 		return das.analyzeExcelFile(filePath)
 	case "document":
 		return das.analyzeDocFile(filePath)
+	case "powerpoint":
+		return das.analyzePowerPointFile(filePath)
 	default:
 		return das.analyzeGenericFile(filePath)
 	}
@@ -249,6 +254,93 @@ func (das *DeepAnalysisService) analyzeExcelFile(filePath string) (string, error
 	return description, nil
 }
 
+// analyzePowerPointFile extracts text from PowerPoint slides and analyzes them
+func (das *DeepAnalysisService) analyzePowerPointFile(filePath string) (string, error) {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	// Skip very large PowerPoint files
+	if info.Size() > maxPowerPointFileSize {
+		return fmt.Sprintf("Large PowerPoint file (%d bytes)", info.Size()), nil
+	}
+
+	ext := strings.ToLower(filepath.Ext(filePath))
+
+	// Only .pptx is supported (modern PowerPoint format)
+	// .ppt (legacy binary format) requires platform-specific tools
+	if ext == ".ppt" {
+		das.logger.Debug("Legacy .ppt format not supported, skipping: %s", filePath)
+		return fmt.Sprintf("PowerPoint presentation (legacy .ppt format): %s", filepath.Base(filePath)), nil
+	}
+
+	// Open .pptx file as a ZIP archive
+	zipReader, err := zip.OpenReader(filePath)
+	if err != nil {
+		das.logger.Debug("Failed to open PowerPoint file as ZIP %s: %v", filePath, err)
+		return fmt.Sprintf("PowerPoint presentation: %s", filepath.Base(filePath)), nil
+	}
+	defer zipReader.Close()
+
+	// Extract text from all slide XML files
+	var allText []string
+	slideCount := 0
+
+	for _, file := range zipReader.File {
+		// PowerPoint slides are in ppt/slides/slideN.xml
+		if strings.HasPrefix(file.Name, "ppt/slides/slide") && strings.HasSuffix(file.Name, ".xml") {
+			slideCount++
+
+			rc, err := file.Open()
+			if err != nil {
+				das.logger.Debug("Failed to open slide file %s: %v", file.Name, err)
+				continue
+			}
+
+			content, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				das.logger.Debug("Failed to read slide file %s: %v", file.Name, err)
+				continue
+			}
+
+			// Extract text from this slide's XML
+			slideText := das.extractTextFromPPTXML(string(content))
+			if slideText != "" {
+				allText = append(allText, slideText)
+			}
+		}
+	}
+
+	text := strings.Join(allText, " ")
+	das.logger.Debug("Extracted text length for %s: %d characters from %d slides", filePath, len(text), slideCount)
+	das.logger.Debug("First 200 chars of extracted text: %s", das.truncateContent(text, 200))
+
+	if text == "" {
+		das.logger.Debug("Extracted text is empty for: %s", filePath)
+		return fmt.Sprintf("Empty PowerPoint presentation: %s", filepath.Base(filePath)), nil
+	}
+
+	// Build content with metadata
+	var contentBuilder strings.Builder
+	contentBuilder.WriteString(fmt.Sprintf("PowerPoint presentation: %s\nSlides: %d\n\nContent:\n%s",
+		filepath.Base(filePath), slideCount, text))
+
+	content := contentBuilder.String()
+	das.logger.Debug("Total content length being sent to LLM: %d characters", len(content))
+
+	// Use LLM to analyze the PowerPoint content
+	description, err := das.analyzeContentWithLLM(content, "powerpoint", filepath.Base(filePath))
+	if err != nil {
+		das.logger.Debug("Failed to analyze PowerPoint file %s: %v", filePath, err)
+		// Fallback to basic description
+		return fmt.Sprintf("PowerPoint presentation with %d slides: %s", slideCount, filepath.Base(filePath)), nil
+	}
+
+	return description, nil
+}
+
 // analyzePDFFile converts PDF pages to images and analyzes them
 func (das *DeepAnalysisService) analyzePDFFile(filePath string) (string, error) {
 	info, err := os.Stat(filePath)
@@ -436,7 +528,18 @@ func (das *DeepAnalysisService) analyzeGenericFile(filePath string) (string, err
 func (das *DeepAnalysisService) analyzeContentWithLLM(content, contentType, fileName string) (string, error) {
 	systemPrompt := das.config.TextAnalysisPrompt
 
-	userPrompt := fmt.Sprintf("File name: %s\nContent type: %s\n\nContent:\n%s\n\nProvide a brief description:", fileName, contentType, das.truncateContent(content, 2000))
+	// Use larger truncation limit for structured documents (PowerPoint, Excel, Word)
+	// to give LLM more context
+	truncateLimit := 2000
+	if contentType == "powerpoint" || contentType == "excel" || contentType == "word" {
+		truncateLimit = 8000
+	}
+
+	truncatedContent := das.truncateContent(content, truncateLimit)
+	das.logger.Debug("Sending %d characters to LLM for %s analysis (original: %d, limit: %d)",
+		len(truncatedContent), contentType, len(content), truncateLimit)
+
+	userPrompt := fmt.Sprintf("File name: %s\nContent type: %s\n\nContent:\n%s\n\nProvide a brief description:", fileName, contentType, truncatedContent)
 
 	reqBody := OpenAIRequest{
 		Model: das.config.Model,
@@ -560,6 +663,29 @@ func (das *DeepAnalysisService) truncateContent(content string, maxLen int) stri
 func (das *DeepAnalysisService) extractTextFromDocxXML(xmlContent string) string {
 	// Extract text from <w:t> tags (Word text elements)
 	re := regexp.MustCompile(`<w:t[^>]*>([^<]*)</w:t>`)
+	matches := re.FindAllStringSubmatch(xmlContent, -1)
+
+	var textParts []string
+	for _, match := range matches {
+		if len(match) > 1 && match[1] != "" {
+			textParts = append(textParts, match[1])
+		}
+	}
+
+	// Join with spaces and clean up
+	text := strings.Join(textParts, " ")
+
+	// Replace multiple spaces with single space
+	text = regexp.MustCompile(`\s+`).ReplaceAllString(text, " ")
+
+	return strings.TrimSpace(text)
+}
+
+// extractTextFromPPTXML extracts plain text from PowerPoint slide XML content
+func (das *DeepAnalysisService) extractTextFromPPTXML(xmlContent string) string {
+	// PowerPoint uses <a:t> tags (DrawingML text elements) for text content
+	// These are inside <a:r> (text runs) within <a:p> (paragraphs)
+	re := regexp.MustCompile(`<a:t[^>]*>([^<]*)</a:t>`)
 	matches := re.FindAllStringSubmatch(xmlContent, -1)
 
 	var textParts []string
