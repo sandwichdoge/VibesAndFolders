@@ -51,7 +51,7 @@ type OpenAIStreamResponse struct {
 }
 
 func (s *OpenAIService) GetSuggestions(structure, userPrompt, basePath string, onOperation OperationCallback) ([]FileOperation, error) {
-	systemPrompt := s.buildSystemPrompt()
+	systemPrompt := s.config.SystemPrompt
 	fullPrompt := s.buildUserPrompt(basePath, structure, userPrompt)
 
 	reqBody := OpenAIRequest{
@@ -196,28 +196,6 @@ func (s *OpenAIService) parseSingleOperation(jsonLine, basePath string) (FileOpe
 	}
 
 	return op, nil
-}
-
-func (s *OpenAIService) buildSystemPrompt() string {
-	return `You are a file organization assistant.
-You must output a stream of valid JSON objects.
-
-Output Format Rules:
-1. Output format: JSON Lines. Each line must be a standalone valid JSON object: {"from": "...", "to": "..."}
-2. "from": path relative to base, must exist.
-3. "to": destination path relative to base.
-4. Only output files that need moving/renaming.
-
-Example:
-{"from": "IMG_1234.jpg", "to": "photos/vacation/IMG_1234.jpg"}
-{"from": "document.pdf", "to": "documents/renamed_document.pdf"}
-{"from": "old_folder/file.txt", "to": "new_folder/file.txt"}
-
-Organization Principles:
-5. When creating folders, use consistent naming that matches existing patterns in the directory.
-6. Preserve existing well-organized structures. Avoid reorganizing what's already logically arranged.
-7. May rename files in required.
-`
 }
 
 func (s *OpenAIService) buildUserPrompt(basePath, structure, userPrompt string) string {

@@ -15,14 +15,33 @@ const (
 	defaultEndpoint = "https://openrouter.ai/api/v1/chat/completions"
 	DefaultAPIKey   = "YOUR_API_KEY_HERE"
 	defaultModel    = "moonshotai/kimi-k2-0905"
+	defaultSystemPrompt = `You are a file organization assistant.
+You must output a stream of valid JSON objects.
+
+Output Format Rules:
+1. Output format: JSON Lines. Each line must be a standalone valid JSON object: {"from": "...", "to": "..."}
+2. "from": path relative to base, must exist.
+3. "to": destination path relative to base.
+4. Only output files that need moving/renaming.
+
+Example:
+{"from": "IMG_1234.jpg", "to": "photos/vacation/IMG_1234.jpg"}
+{"from": "document.pdf", "to": "documents/renamed_document.pdf"}
+{"from": "old_folder/file.txt", "to": "new_folder/file.txt"}
+
+Organization Principles:
+5. When creating folders, use consistent naming that matches existing patterns in the directory.
+6. Preserve existing well-organized structures. Avoid reorganizing what's already logically arranged.
+7. May rename files in required.`
 )
 
 type Config struct {
-	Endpoint          string `json:"endpoint"`
-	APIKey            string `json:"api_key"`
-	Model             string `json:"model"`
+	Endpoint           string `json:"endpoint"`
+	APIKey             string `json:"api_key"`
+	Model              string `json:"model"`
+	SystemPrompt       string `json:"system_prompt"`
 	EnableDeepAnalysis bool   `json:"enable_deep_analysis"`
-	IndexDBPath       string `json:"index_db_path"`
+	IndexDBPath        string `json:"index_db_path"`
 }
 
 // LoadConfig loads configuration from app storage
@@ -74,6 +93,9 @@ func LoadConfig(a fyne.App, logger *Logger) *Config {
 		return config
 	}
 
+	// Fill in any missing fields with defaults (for backward compatibility)
+	applyDefaults(config)
+
 	logger.Info("Configuration loaded successfully.")
 	return config
 }
@@ -113,6 +135,24 @@ func loadDefaults(config *Config) {
 	config.Endpoint = defaultEndpoint
 	config.APIKey = DefaultAPIKey
 	config.Model = defaultModel
+	config.SystemPrompt = defaultSystemPrompt
 	config.EnableDeepAnalysis = false
 	config.IndexDBPath = "" // Will be set to app storage path at runtime
+}
+
+// applyDefaults fills in any empty fields with default values
+// This is used for backward compatibility when loading old config files
+func applyDefaults(config *Config) {
+	if config.Endpoint == "" {
+		config.Endpoint = defaultEndpoint
+	}
+	if config.APIKey == "" {
+		config.APIKey = DefaultAPIKey
+	}
+	if config.Model == "" {
+		config.Model = defaultModel
+	}
+	if config.SystemPrompt == "" {
+		config.SystemPrompt = defaultSystemPrompt
+	}
 }

@@ -29,7 +29,7 @@ func NewConfigWindow(fyneApp fyne.App, config *app.Config, logger *app.Logger, h
 
 func (cw *ConfigWindow) Show(onFirstRunSubmit func(), onFirstRunCancel func()) {
 	configWin := cw.app.NewWindow("Configuration")
-	configWin.Resize(fyne.NewSize(600, 250))
+	configWin.Resize(fyne.NewSize(800, 700))
 
 	endpointEntry := widget.NewEntry()
 	endpointEntry.SetText(cw.config.Endpoint)
@@ -46,6 +46,12 @@ func (cw *ConfigWindow) Show(onFirstRunSubmit func(), onFirstRunCancel func()) {
 	dbPathEntry := widget.NewEntry()
 	dbPathEntry.SetText(cw.config.IndexDBPath)
 	dbPathEntry.SetPlaceHolder("Path to index database (optional)")
+
+	systemPromptEntry := widget.NewMultiLineEntry()
+	systemPromptEntry.SetText(cw.config.SystemPrompt)
+	systemPromptEntry.SetPlaceHolder("Enter custom system prompt for the AI...")
+	systemPromptEntry.Wrapping = fyne.TextWrapWord
+	systemPromptEntry.SetMinRowsVisible(15)
 
 	// Determine the Model label based on Deep Analysis setting
 	modelLabel := "Model"
@@ -100,7 +106,37 @@ func (cw *ConfigWindow) Show(onFirstRunSubmit func(), onFirstRunCancel func()) {
 	// Create a container for the model entry with the verify button
 	modelContainer := container.NewBorder(nil, nil, nil, verifyBtn, modelEntry)
 
-	form := &widget.Form{
+	saveBtn := widget.NewButton("Submit", func() {
+		if strings.TrimSpace(endpointEntry.Text) == "" {
+			dialog.ShowError(app.ErrEmptyEndpoint, configWin)
+			return
+		}
+
+		cw.config.Endpoint = endpointEntry.Text
+		cw.config.APIKey = apiKeyEntry.Text
+		cw.config.Model = modelEntry.Text
+		cw.config.SystemPrompt = systemPromptEntry.Text
+		cw.config.IndexDBPath = dbPathEntry.Text
+		app.SaveConfig(cw.app, cw.config, cw.logger)
+
+		dialog.ShowInformation("Saved", "Configuration has been saved.", configWin)
+		configWin.Close()
+
+		if onFirstRunSubmit != nil {
+			onFirstRunSubmit()
+		}
+	})
+	saveBtn.Importance = widget.HighImportance
+
+	cancelBtn := widget.NewButton("Cancel", func() {
+		configWin.Close()
+		if onFirstRunCancel != nil {
+			onFirstRunCancel()
+		}
+	})
+
+	// Create a custom layout with the system prompt taking up most of the space
+	topForm := &widget.Form{
 		Items: []*widget.FormItem{
 			{Text: "Endpoint", Widget: endpointEntry},
 			{Text: "API Key", Widget: apiKeyEntry},
@@ -108,34 +144,22 @@ func (cw *ConfigWindow) Show(onFirstRunSubmit func(), onFirstRunCancel func()) {
 			{Text: "", Widget: verifyStatusLabel},
 			{Text: "Index DB Path", Widget: dbPathEntry},
 		},
-		OnSubmit: func() {
-			if strings.TrimSpace(endpointEntry.Text) == "" {
-				dialog.ShowError(app.ErrEmptyEndpoint, configWin)
-				return
-			}
-
-			cw.config.Endpoint = endpointEntry.Text
-			cw.config.APIKey = apiKeyEntry.Text
-			cw.config.Model = modelEntry.Text
-			cw.config.IndexDBPath = dbPathEntry.Text
-			app.SaveConfig(cw.app, cw.config, cw.logger)
-
-			dialog.ShowInformation("Saved", "Configuration has been saved.", configWin)
-			configWin.Close()
-
-			if onFirstRunSubmit != nil {
-				onFirstRunSubmit()
-			}
-		},
-		OnCancel: func() {
-			configWin.Close()
-			if onFirstRunCancel != nil {
-				onFirstRunCancel()
-			}
-		},
 	}
 
-	configWin.SetContent(form)
+	systemPromptLabel := widget.NewLabelWithStyle("System Prompt:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	systemPromptScroll := container.NewScroll(systemPromptEntry)
+
+	buttonBar := container.NewHBox(saveBtn, cancelBtn)
+
+	content := container.NewBorder(
+		container.NewVBox(topForm, systemPromptLabel),
+		buttonBar,
+		nil,
+		nil,
+		systemPromptScroll,
+	)
+
+	configWin.SetContent(content)
 
 	if onFirstRunSubmit != nil {
 		configWin.ShowAndRun()
