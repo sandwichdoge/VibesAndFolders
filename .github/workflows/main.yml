@@ -66,27 +66,13 @@ jobs:
           fyne package -os ${{ matrix.fyne_os }} -icon Icon.png
           cd ../..
 
-      # Build universal macOS binary (both amd64 and arm64)
-      - name: Build macOS Universal Binary
+      # Build macOS Application
+      - name: Build macOS Application
         if: matrix.os == 'macos'
         run: |
           cd cmd/vibesandfolders
-          
-          # Build for amd64
-          GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -o VibesAndFolders-amd64 .
-          
-          # Build for arm64
-          GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -o VibesAndFolders-arm64 .
-          
-          # Combine into universal binary
-          lipo -create -output VibesAndFolders VibesAndFolders-amd64 VibesAndFolders-arm64
-          
-          # Clean up individual arch binaries
-          rm VibesAndFolders-amd64 VibesAndFolders-arm64
-          
-          # Create app bundle using fyne package
-          fyne package -os darwin -icon Icon.png -executable VibesAndFolders
-          
+          # Let fyne package handle the build to properly embed metadata from FyneApp.toml
+          fyne package -os darwin -icon Icon.png
           cd ../..
 
       # Handle Linux build output and create DEB package
