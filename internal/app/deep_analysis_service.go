@@ -11,12 +11,15 @@ import (
 	"strings"
 
 	"github.com/gen2brain/go-fitz"
+	"github.com/xuri/excelize/v2"
 )
 
 const (
 	maxTextFileSize  = 50 * 1024        // 50KB for text files
 	maxImageFileSize = 5 * 1024 * 1024  // 5MB for images
 	maxPDFFileSize   = 50 * 1024 * 1024 // 50MB for PDFs
+	maxExcelFileSize = 50 * 1024 * 1024 // 50MB for Excel files
+	maxExcelRows     = 30               // Max rows per sheet to process
 )
 
 // DeepAnalysisService handles multimodal file analysis
@@ -47,6 +50,8 @@ func (das *DeepAnalysisService) AnalyzeFile(filePath string) (string, error) {
 		return das.analyzeImageFile(filePath)
 	case "pdf":
 		return das.analyzePDFFile(filePath)
+	case "excel":
+		return das.analyzeExcelFile(filePath)
 	default:
 		return das.analyzeGenericFile(filePath)
 	}
@@ -109,6 +114,81 @@ func (das *DeepAnalysisService) analyzeImageFile(filePath string) (string, error
 		das.logger.Debug("Failed to analyze image file %s: %v", filePath, err)
 		// Fallback to basic description
 		return fmt.Sprintf("Image file: %s", filepath.Base(filePath)), nil
+	}
+
+	return description, nil
+}
+
+// analyzeExcelFile extracts text from Excel sheets and analyzes them
+func (das *DeepAnalysisService) analyzeExcelFile(filePath string) (string, error) {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	// Skip very large Excel files
+	if info.Size() > maxExcelFileSize {
+		return fmt.Sprintf("Large Excel file (%d bytes)", info.Size()), nil
+	}
+
+	// Open Excel file
+	f, err := excelize.OpenFile(filePath)
+	if err != nil {
+		das.logger.Debug("Failed to open Excel file %s: %v", filePath, err)
+		return fmt.Sprintf("Excel file: %s", filepath.Base(filePath)), nil
+	}
+	defer f.Close()
+
+	// Get all sheet names
+	sheets := f.GetSheetList()
+	if len(sheets) == 0 {
+		return fmt.Sprintf("Empty Excel file: %s", filepath.Base(filePath)), nil
+	}
+
+	// Extract content from all sheets
+	var contentBuilder strings.Builder
+	contentBuilder.WriteString(fmt.Sprintf("Excel file: %s\nSheets: %d\n\n", filepath.Base(filePath), len(sheets)))
+
+	for _, sheetName := range sheets {
+		contentBuilder.WriteString(fmt.Sprintf("Sheet: %s\n", sheetName))
+
+		// Get all rows
+		rows, err := f.GetRows(sheetName)
+		if err != nil {
+			das.logger.Debug("Failed to read sheet %s: %v", sheetName, err)
+			continue
+		}
+
+		// Limit rows to prevent memory issues
+		rowCount := len(rows)
+		if rowCount > maxExcelRows {
+			rowCount = maxExcelRows
+		}
+
+		// Extract cell values
+		for i := 0; i < rowCount && i < len(rows); i++ {
+			row := rows[i]
+			for j, cell := range row {
+				if cell != "" {
+					contentBuilder.WriteString(fmt.Sprintf("%s ", cell))
+				}
+				if j > 20 { // Limit columns
+					break
+				}
+			}
+			contentBuilder.WriteString("\n")
+		}
+		contentBuilder.WriteString("\n")
+	}
+
+	content := contentBuilder.String()
+
+	// Use LLM to analyze the Excel content
+	description, err := das.analyzeContentWithLLM(content, "excel", filepath.Base(filePath))
+	if err != nil {
+		das.logger.Debug("Failed to analyze Excel file %s: %v", filePath, err)
+		// Fallback to basic description
+		return fmt.Sprintf("Excel file with %d sheets: %s", len(sheets), filepath.Base(filePath)), nil
 	}
 
 	return description, nil
@@ -475,7 +555,9 @@ func DetermineFileType(filePath string) string {
 		return "audio"
 	case ".pdf":
 		return "pdf"
-	case ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx":
+	case ".xls", ".xlsx":
+		return "excel"
+	case ".doc", ".docx", ".ppt", ".pptx":
 		return "document"
 	default:
 		return "other"
