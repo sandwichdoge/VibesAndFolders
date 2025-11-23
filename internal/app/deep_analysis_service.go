@@ -326,18 +326,7 @@ func (das *DeepAnalysisService) analyzePDFFile(filePath string) (string, error) 
 
 // analyzePDFWithLLM sends multiple PDF page images to multimodal LLM for analysis
 func (das *DeepAnalysisService) analyzePDFWithLLM(imageContents []map[string]interface{}, fileName string, totalPages int) (string, error) {
-	systemPrompt := `You are a precise document analysis assistant. Your task is to analyze PDF page images and describe ONLY what you can actually see in them.
-
-CRITICAL RULES:
-- Only describe content that is clearly visible in the provided images
-- If images are unclear, blurry, or unreadable, state that explicitly
-- Do NOT make assumptions about content you cannot see
-- Do NOT invent details that aren't present
-- Focus on: document type, main topic, visible headings, key sections, and purpose
-- Be factual and specific, citing visible elements (e.g., "shows a table with X columns", "contains section titled Y")
-- Maximum 3 sentences
-
-If the images are too low quality to read, respond with: "Unable to analyze - images are not clear enough to read text reliably."`
+	systemPrompt := das.config.PDFAnalysisPrompt
 
 	// Build the user message with text followed by all images
 	userText := fmt.Sprintf("Document filename: %s\nPages shown: %d of %d total\n\nDescribe ONLY what you can clearly see in these page images. Do not speculate or infer content you cannot directly observe:", fileName, len(imageContents), totalPages)
@@ -445,7 +434,7 @@ func (das *DeepAnalysisService) analyzeGenericFile(filePath string) (string, err
 
 // analyzeContentWithLLM sends text content to LLM for analysis
 func (das *DeepAnalysisService) analyzeContentWithLLM(content, contentType, fileName string) (string, error) {
-	systemPrompt := `You are a file analysis assistant. Analyze the provided file content and provide a concise, description (max 3 sentences) that captures the main purpose or content of the file. Be specific and informative.`
+	systemPrompt := das.config.TextAnalysisPrompt
 
 	userPrompt := fmt.Sprintf("File name: %s\nContent type: %s\n\nContent:\n%s\n\nProvide a brief description:", fileName, contentType, das.truncateContent(content, 2000))
 
@@ -491,15 +480,7 @@ func (das *DeepAnalysisService) analyzeContentWithLLM(content, contentType, file
 
 // analyzeImageWithLLM sends image to multimodal LLM for analysis
 func (das *DeepAnalysisService) analyzeImageWithLLM(base64Image, mimeType, fileName string) (string, error) {
-	systemPrompt := `You are a precise image analysis assistant. Describe ONLY what you can actually see in the image.
-
-RULES:
-- Describe visible subjects, objects, scenes, and composition
-- If the image contains text, mention it (e.g., "screenshot of code", "diagram with labels")
-- Be specific and factual (e.g., "photo of a red car on a highway", not "transportation image")
-- If unclear or corrupted, state "Image is unclear or corrupted"
-- Do NOT invent details you cannot see
-- Maximum 100 characters`
+	systemPrompt := das.config.ImageAnalysisPrompt
 
 	// Create multimodal message with image
 	userText := fmt.Sprintf("Image: %s\n\nDescribe only what is clearly visible:", fileName)

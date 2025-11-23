@@ -33,15 +33,43 @@ Organization Principles:
 5. When creating folders, use consistent naming that matches existing patterns in the directory.
 6. Preserve existing well-organized structures. Avoid reorganizing what's already logically arranged.
 7. May rename files in required.`
+
+	defaultPDFAnalysisPrompt = `You are a precise document analysis assistant. Your task is to analyze PDF page images and describe ONLY what you can actually see in them.
+
+CRITICAL RULES:
+- Only describe content that is clearly visible in the provided images
+- If images are unclear, blurry, or unreadable, state that explicitly
+- Do NOT make assumptions about content you cannot see
+- Do NOT invent details that aren't present
+- Focus on: document type, main topic, visible headings, key sections, and purpose
+- Be factual and specific, citing visible elements (e.g., "shows a table with X columns", "contains section titled Y")
+- Maximum 3 sentences
+
+If the images are too low quality to read, respond with: "Unable to analyze - images are not clear enough to read text reliably."`
+
+	defaultTextAnalysisPrompt = `You are a file analysis assistant. Analyze the provided file content and provide a concise, description (max 3 sentences) that captures the main purpose or content of the file. Be specific and informative.`
+
+	defaultImageAnalysisPrompt = `You are a precise image analysis assistant. Describe ONLY what you can actually see in the image.
+
+RULES:
+- Describe visible subjects, objects, scenes, and composition
+- If the image contains text, mention it (e.g., "screenshot of code", "diagram with labels")
+- Be specific and factual (e.g., "photo of a red car on a highway", not "transportation image")
+- If unclear or corrupted, state "Image is unclear or corrupted"
+- Do NOT invent details you cannot see
+- Maximum 100 characters`
 )
 
 type Config struct {
-	Endpoint           string `json:"endpoint"`
-	APIKey             string `json:"api_key"`
-	Model              string `json:"model"`
-	SystemPrompt       string `json:"system_prompt"`
-	EnableDeepAnalysis bool   `json:"enable_deep_analysis"`
-	IndexDBPath        string `json:"index_db_path"`
+	Endpoint              string `json:"endpoint"`
+	APIKey                string `json:"api_key"`
+	Model                 string `json:"model"`
+	SystemPrompt          string `json:"system_prompt"`
+	PDFAnalysisPrompt     string `json:"pdf_analysis_prompt"`
+	TextAnalysisPrompt    string `json:"text_analysis_prompt"`
+	ImageAnalysisPrompt   string `json:"image_analysis_prompt"`
+	EnableDeepAnalysis    bool   `json:"enable_deep_analysis"`
+	IndexDBPath           string `json:"index_db_path"`
 }
 
 // LoadConfig loads configuration from app storage
@@ -136,6 +164,9 @@ func loadDefaults(config *Config) {
 	config.APIKey = DefaultAPIKey
 	config.Model = defaultModel
 	config.SystemPrompt = defaultSystemPrompt
+	config.PDFAnalysisPrompt = defaultPDFAnalysisPrompt
+	config.TextAnalysisPrompt = defaultTextAnalysisPrompt
+	config.ImageAnalysisPrompt = defaultImageAnalysisPrompt
 	config.EnableDeepAnalysis = false
 	config.IndexDBPath = "" // Will be set to app storage path at runtime
 }
@@ -154,5 +185,14 @@ func applyDefaults(config *Config) {
 	}
 	if config.SystemPrompt == "" {
 		config.SystemPrompt = defaultSystemPrompt
+	}
+	if config.PDFAnalysisPrompt == "" {
+		config.PDFAnalysisPrompt = defaultPDFAnalysisPrompt
+	}
+	if config.TextAnalysisPrompt == "" {
+		config.TextAnalysisPrompt = defaultTextAnalysisPrompt
+	}
+	if config.ImageAnalysisPrompt == "" {
+		config.ImageAnalysisPrompt = defaultImageAnalysisPrompt
 	}
 }
