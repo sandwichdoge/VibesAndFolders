@@ -101,7 +101,7 @@ func (mw *MainWindow) initializeComponents() {
 	)
 	mw.indexDetailsBox.Hidden = !mw.config.EnableDeepAnalysis
 
-	mw.deepAnalysisCheck = widget.NewCheck("Enable Deep Analysis (PDF/Image/Audio indexing)", func(checked bool) {
+	mw.deepAnalysisCheck = widget.NewCheck("Enable Deep Analysis (PDF/Image indexing)", func(checked bool) {
 		mw.config.EnableDeepAnalysis = checked
 		app.SaveConfig(mw.app, mw.config, mw.logger)
 		mw.updateIndexDetailsVisibility()
