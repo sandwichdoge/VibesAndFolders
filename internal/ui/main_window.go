@@ -516,24 +516,21 @@ func (mw *MainWindow) onViewIndexDetails() {
 		return
 	}
 
+	// Check if there are any indexed files before opening the window
 	stats, err := mw.orchestrator.GetDirectoryIndexStats(mw.dirEntry.Text)
 	if err != nil {
 		dialog.ShowError(fmt.Errorf("failed to get index statistics: %w", err), mw.window)
 		return
 	}
 
-	var detailsText strings.Builder
-	detailsText.WriteString(fmt.Sprintf("Path: %s\n\n", mw.dirEntry.Text))
-	detailsText.WriteString(fmt.Sprintf("Total files indexed: %d\n\n", stats["total"]))
-	detailsText.WriteString("Breakdown by file type:\n")
-
-	for fileType, count := range stats {
-		if fileType != "total" {
-			detailsText.WriteString(fmt.Sprintf("  %s: %d\n", fileType, count))
-		}
+	if stats["total"] == 0 {
+		dialog.ShowInformation("No Index", "There are no indexed files for this directory yet.\n\nIndexing will happen automatically on the first analysis.", mw.window)
+		return
 	}
 
-	dialog.ShowInformation("Index Details", detailsText.String(), mw.window)
+	// Open the detailed index window
+	detailsWindow := NewIndexDetailsWindow(mw.app, mw.orchestrator, mw.logger, mw.dirEntry.Text)
+	detailsWindow.Show()
 }
 
 func (mw *MainWindow) onDeleteIndex() {

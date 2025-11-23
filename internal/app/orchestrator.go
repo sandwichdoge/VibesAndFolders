@@ -229,6 +229,14 @@ func (o *Orchestrator) DeleteDirectoryIndex(dirPath string) (int, error) {
 	return o.indexService.DeleteDirectoryIndex(dirPath)
 }
 
+// GetIndexedFiles returns all indexed files in a directory
+func (o *Orchestrator) GetIndexedFiles(dirPath string) ([]IndexedFile, error) {
+	if o.indexService == nil {
+		return nil, fmt.Errorf("index service not available")
+	}
+	return o.indexService.GetIndexedFilesInDirectory(dirPath)
+}
+
 // enrichStructureWithDescriptions adds AI-generated descriptions to the directory structure
 func (o *Orchestrator) enrichStructureWithDescriptions(dirPath, structure string) (string, error) {
 	// Get all indexed files in this directory
