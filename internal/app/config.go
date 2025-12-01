@@ -57,7 +57,6 @@ RULES:
 - Be specific and factual (e.g., "photo of a red car on a highway", not "transportation image")
 - If unclear or corrupted, state "Image is unclear or corrupted"
 - Do NOT invent details you cannot see
-- Include a content rating of the image (G, PG, R)
 - Output one paragraph only`
 
 	defaultIgnorePatterns = `# Ignore patterns (one per line, similar to .gitignore)
@@ -74,22 +73,7 @@ vendor/
 
 # Build outputs
 build/
-dist/
-*.exe
-*.dll
-*.so
-*.dylib
-
-# OS files
-.DS_Store
-Thumbs.db
-Desktop.ini
-
-# Temporary files
-*.tmp
-*.temp
-*.log
-*.cache`
+dist/`
 )
 
 type Config struct {
